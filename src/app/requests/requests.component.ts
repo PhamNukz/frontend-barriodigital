@@ -22,14 +22,21 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
     <h2>Trámites</h2>
 
     <form class="card" *ngIf="esVecinoOFuncionario" (ngSubmit)="crear()">
-      <strong>Nuevo trámite</strong>
-      <select [(ngModel)]="nuevo.tipoId" name="tipoId" required>
+      <p class="card-title">Nuevo trámite</p>
+
+      <label for="tipo">Tipo de trámite</label>
+      <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" required>
         <option [ngValue]="null" disabled>Selecciona un tipo</option>
         <option *ngFor="let t of tipos" [ngValue]="t.id">{{ t.nombre }}</option>
       </select>
-      <textarea [(ngModel)]="nuevo.descripcion" name="descripcion" placeholder="Descripción" required></textarea>
-      <input [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Dirección" />
-      <button type="submit">Ingresar trámite</button>
+
+      <label for="descripcion">Descripción</label>
+      <textarea id="descripcion" [(ngModel)]="nuevo.descripcion" name="descripcion" placeholder="Cuéntanos qué necesitas" required></textarea>
+
+      <label for="direccion">Dirección</label>
+      <input id="direccion" [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Calle y número" />
+
+      <button type="submit" class="btn btn-primary">Ingresar trámite</button>
     </form>
 
     <p class="muted" *ngIf="error">{{ error }}</p>
@@ -44,8 +51,10 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
           <td><span class="badge" [ngClass]="t.estado">{{ t.estado }}</span></td>
           <td>{{ t.funcionarioAsignado }}</td>
           <td *ngIf="esFuncionarioOAdmin">
-            <button *ngIf="siguienteEstado(t.estado) as sig" (click)="avanzar(t, sig)">→ {{ sig }}</button>
-            <button *ngIf="puedeRechazar(t.estado)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
+            <div class="row-actions">
+              <button class="btn btn-outline btn-sm" *ngIf="siguienteEstado(t.estado) as sig" (click)="avanzar(t, sig)">→ {{ sig }}</button>
+              <button class="btn btn-danger btn-sm" *ngIf="puedeRechazar(t.estado)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
+            </div>
           </td>
         </tr>
       </tbody>

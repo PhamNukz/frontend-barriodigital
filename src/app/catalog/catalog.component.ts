@@ -13,11 +13,18 @@ import { CatalogService, TipoTramite } from './catalog.service';
     <h2>Catálogo de trámites</h2>
 
     <form class="card" *ngIf="esAdmin" (ngSubmit)="crear()">
-      <strong>Nuevo tipo de trámite (rol Admin)</strong>
-      <input [(ngModel)]="nuevo.nombre" name="nombre" placeholder="Nombre" required />
-      <textarea [(ngModel)]="nuevo.requisitos" name="requisitos" placeholder="Requisitos"></textarea>
-      <input [(ngModel)]="nuevo.cupoDiario" name="cupoDiario" type="number" placeholder="Cupo diario" required />
-      <button type="submit">Crear</button>
+      <p class="card-title">Nuevo tipo de trámite · rol Admin</p>
+
+      <label for="nombre">Nombre</label>
+      <input id="nombre" [(ngModel)]="nuevo.nombre" name="nombre" placeholder="Ej: Poda de árbol" required />
+
+      <label for="requisitos">Requisitos</label>
+      <textarea id="requisitos" [(ngModel)]="nuevo.requisitos" name="requisitos" placeholder="Qué debe adjuntar el vecino"></textarea>
+
+      <label for="cupo">Cupo diario</label>
+      <input id="cupo" [(ngModel)]="nuevo.cupoDiario" name="cupoDiario" type="number" min="0" required />
+
+      <button type="submit" class="btn btn-primary">Crear tipo de trámite</button>
     </form>
 
     <p class="muted" *ngIf="error">{{ error }}</p>

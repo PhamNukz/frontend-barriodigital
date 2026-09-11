@@ -90,6 +90,33 @@ button.btn-ghost {
 }
 button.btn-ghost:hover { background: rgba(255,255,255,0.18); }
 
+button.btn-primary {
+  background: var(--teal);
+  color: #fff;
+  box-shadow: 0 10px 20px -12px rgba(31,92,83,0.65);
+}
+button.btn-primary:hover:not(:disabled) { background: var(--teal-deep); }
+button.btn-primary:disabled { background: #b9c4c1; cursor: not-allowed; box-shadow: none; }
+
+button.btn-outline {
+  background: transparent;
+  color: var(--teal-deep);
+  border: 1.5px solid var(--teal);
+  padding: 7px 14px;
+}
+button.btn-outline:hover { background: var(--teal); color: #fff; }
+
+button.btn-danger {
+  background: transparent;
+  color: var(--terracotta-deep);
+  border: 1.5px solid var(--terracotta);
+  padding: 7px 14px;
+}
+button.btn-danger:hover { background: var(--terracotta); color: #fff; }
+
+button.btn-sm { font-size: 0.8rem; padding: 6px 12px; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* Boton de Microsoft: sigue la guia de marca (fondo oscuro, logo de 4 colores) */
 button.btn-microsoft {
   display: inline-flex;
@@ -178,13 +205,33 @@ table { width: 100%; border-collapse: collapse; background: var(--paper-raised);
   border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
 th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
-form.card { background: var(--paper-raised); padding: 20px; border: 1px solid var(--line);
-  border-radius: 14px; margin-bottom: 24px; box-shadow: var(--shadow); }
-form.card input, form.card textarea, form.card select {
-  display: block; margin: 8px 0; padding: 9px 11px; width: 280px;
-  border: 1px solid var(--line); border-radius: 8px; font-family: inherit; font-size: 0.92rem;
+form.card {
+  background: var(--paper-raised); padding: 26px 28px; border: 1px solid var(--line);
+  border-left: 4px solid var(--terracotta); border-radius: 14px; margin-bottom: 28px;
+  box-shadow: var(--shadow); max-width: 460px;
 }
-form.card button { margin-top: 6px; }
+form.card .card-title {
+  font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 1.05rem;
+  color: var(--teal-deep); margin: 0 0 18px;
+}
+form.card label {
+  display: block; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-soft); margin: 16px 0 6px;
+}
+form.card label:first-of-type { margin-top: 0; }
+form.card input, form.card textarea, form.card select {
+  display: block; width: 100%; padding: 11px 13px;
+  border: 1.5px solid var(--line); border-radius: 9px;
+  font-family: inherit; font-size: 0.95rem; color: var(--ink);
+  background: var(--paper); transition: border-color 0.15s, box-shadow 0.15s;
+}
+form.card textarea { resize: vertical; min-height: 64px; }
+form.card input:focus, form.card textarea:focus, form.card select:focus {
+  outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,92,83,0.15);
+  background: var(--paper-raised);
+}
+form.card input::placeholder, form.card textarea::placeholder { color: #9aa6a4; }
+form.card > button { margin-top: 20px; }
 .muted { color: var(--ink-soft); }
 .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 600;
   background: rgba(31,92,83,0.12); color: var(--teal-deep); }
