@@ -24,7 +24,9 @@ import { CatalogService, TipoTramite } from './catalog.service';
       <label for="cupo">Cupo diario</label>
       <input id="cupo" [(ngModel)]="nuevo.cupoDiario" name="cupoDiario" type="number" min="0" required />
 
-      <button type="submit" class="btn btn-primary">Crear tipo de trámite</button>
+      <button type="submit" class="btn btn-primary" [disabled]="enviando">
+        {{ enviando ? 'Creando…' : 'Crear tipo de trámite' }}
+      </button>
     </form>
 
     <p class="muted" *ngIf="error">{{ error }}</p>
@@ -47,6 +49,7 @@ export class CatalogComponent implements OnInit {
   tipos: TipoTramite[] = [];
   error = '';
   esAdmin = false;
+  enviando = false;
   nuevo = { nombre: '', requisitos: '', cupoDiario: 5 };
 
   constructor(private service: CatalogService, private msal: MsalService) {}
@@ -64,12 +67,18 @@ export class CatalogComponent implements OnInit {
   }
 
   crear(): void {
+    if (this.enviando) return;
+    this.enviando = true;
     this.service.crear(this.nuevo).subscribe({
       next: () => {
+        this.enviando = false;
         this.nuevo = { nombre: '', requisitos: '', cupoDiario: 5 };
         this.cargar();
       },
-      error: (e) => (this.error = e.error?.detail ?? `No se pudo crear (${e.status})`),
+      error: (e) => {
+        this.enviando = false;
+        this.error = e.error?.detail ?? `No se pudo crear (${e.status})`;
+      },
     });
   }
 }

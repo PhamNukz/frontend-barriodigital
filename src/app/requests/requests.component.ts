@@ -36,7 +36,9 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
       <label for="direccion">Dirección</label>
       <input id="direccion" [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Calle y número" />
 
-      <button type="submit" class="btn btn-primary">Ingresar trámite</button>
+      <button type="submit" class="btn btn-primary" [disabled]="enviando">
+        {{ enviando ? 'Ingresando…' : 'Ingresar trámite' }}
+      </button>
     </form>
 
     <p class="muted" *ngIf="error">{{ error }}</p>
@@ -68,6 +70,7 @@ export class RequestsComponent implements OnInit {
   error = '';
   esVecinoOFuncionario = false;
   esFuncionarioOAdmin = false;
+  enviando = false;
   nuevo: { tipoId: number | null; descripcion: string; direccion: string } = {
     tipoId: null,
     descripcion: '',
@@ -98,14 +101,21 @@ export class RequestsComponent implements OnInit {
   }
 
   crear(): void {
-    if (this.nuevo.tipoId == null) return;
+    // Guarda contra doble envio: Enter dispara ngSubmit, y si despues tambien
+    // se hace clic en el boton (o se aprieta Enter dos veces) se duplicaba el tramite.
+    if (this.enviando || this.nuevo.tipoId == null) return;
+    this.enviando = true;
     this.service.crear({ tipoId: this.nuevo.tipoId, descripcion: this.nuevo.descripcion, direccion: this.nuevo.direccion })
       .subscribe({
         next: () => {
+          this.enviando = false;
           this.nuevo = { tipoId: null, descripcion: '', direccion: '' };
           this.cargar();
         },
-        error: (e) => (this.error = e.error?.detail ?? `No se pudo crear (${e.status})`),
+        error: (e) => {
+          this.enviando = false;
+          this.error = e.error?.detail ?? `No se pudo crear (${e.status})`;
+        },
       });
   }
 
