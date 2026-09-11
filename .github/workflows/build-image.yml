@@ -23,5 +23,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/phamnukz/${{ github.event.repository.name }}:latest
+            ghcr.io/phamnukz/${{ github.event.repository.name }}:${{ github.sha }}
