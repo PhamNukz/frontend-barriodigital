@@ -71,8 +71,8 @@ export class RequestsComponent implements OnInit {
     private msal: MsalService,
   ) {}
 
-  ngOnInit(): void {
-    const roles = rolesDe(this.msal);
+  async ngOnInit(): Promise<void> {
+    const roles = await rolesDe(this.msal);
     this.esVecinoOFuncionario = roles.includes('Vecino') || roles.includes('Funcionario');
     this.esFuncionarioOAdmin = roles.includes('Funcionario') || roles.includes('Admin');
     this.cargar();

@@ -69,13 +69,13 @@ export class AppComponent implements OnInit {
       .subscribe(() => this.refresh());
   }
 
-  private refresh(): void {
+  private async refresh(): Promise<void> {
     const account =
       this.msal.instance.getActiveAccount() ?? this.msal.instance.getAllAccounts()[0];
     if (account) this.msal.instance.setActiveAccount(account);
     this.loggedIn = !!account;
     this.username = usernameDe(this.msal);
-    this.roles = rolesDe(this.msal);
+    this.roles = account ? await rolesDe(this.msal) : [];
   }
 
   login(): void {

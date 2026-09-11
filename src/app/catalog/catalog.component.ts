@@ -44,8 +44,8 @@ export class CatalogComponent implements OnInit {
 
   constructor(private service: CatalogService, private msal: MsalService) {}
 
-  ngOnInit(): void {
-    this.esAdmin = rolesDe(this.msal).includes('Admin');
+  async ngOnInit(): Promise<void> {
+    this.esAdmin = (await rolesDe(this.msal)).includes('Admin');
     this.cargar();
   }
 

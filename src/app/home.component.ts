@@ -75,11 +75,11 @@ export class HomeComponent implements OnInit {
     this.refresh();
   }
 
-  private refresh(): void {
+  private async refresh(): Promise<void> {
     const account = this.msal.instance.getActiveAccount();
     this.loggedIn = !!account;
     this.username = usernameDe(this.msal);
-    this.roles = rolesDe(this.msal);
+    this.roles = account ? await rolesDe(this.msal) : [];
   }
 
   login(): void {
