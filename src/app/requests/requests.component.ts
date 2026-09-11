@@ -1,8 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MsalService } from '@azure/msal-angular';
-import { rolesDe } from '../auth/roles';
+import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { EstadoTramite, RequestsService, Tramite } from './requests.service';
 
@@ -80,17 +79,19 @@ export class RequestsComponent implements OnInit {
   constructor(
     private service: RequestsService,
     private catalogService: CatalogService,
-    private msal: MsalService,
+    private session: SessionService,
   ) {}
 
-  async ngOnInit(): Promise<void> {
-    const roles = await rolesDe(this.msal);
-    this.esVecinoOFuncionario = roles.includes('Vecino') || roles.includes('Funcionario');
-    this.esFuncionarioOAdmin = roles.includes('Funcionario') || roles.includes('Admin');
+  ngOnInit(): void {
+    // Se resuscribe con cada cambio de cuenta desde la topbar, no solo al entrar a la pantalla.
+    this.session.estado$.subscribe((s) => {
+      this.esVecinoOFuncionario = s.roles.includes('Vecino') || s.roles.includes('Funcionario');
+      this.esFuncionarioOAdmin = s.roles.includes('Funcionario') || s.roles.includes('Admin');
+      if (this.esVecinoOFuncionario) {
+        this.catalogService.listar().subscribe({ next: (data) => (this.tipos = data) });
+      }
+    });
     this.cargar();
-    if (this.esVecinoOFuncionario) {
-      this.catalogService.listar().subscribe({ next: (data) => (this.tipos = data) });
-    }
   }
 
   cargar(): void {

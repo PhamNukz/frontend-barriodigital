@@ -1,12 +1,7 @@
-import { Component, Inject, OnInit } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import {
-  MsalService,
-  MSAL_GUARD_CONFIG,
-  MsalGuardConfiguration,
-} from '@azure/msal-angular';
-import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
+import { Sesion, SessionService } from './auth/session.service';
 
 @Component({
   selector: 'app-home',
@@ -23,26 +18,32 @@ import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
           institucional, sin usuarios ni contraseñas nuevas.
         </p>
 
-        <div class="services" *ngIf="loggedIn">
+        <div class="services" *ngIf="s.loggedIn && !s.cargando">
           <a routerLink="/requests" class="service-pill"><span class="ico">📋</span> Trámites</a>
           <a routerLink="/catalog" class="service-pill"><span class="ico">🗂️</span> Catálogo</a>
         </div>
       </div>
 
-      <div class="welcome-card" *ngIf="loggedIn">
-        <h2>Hola de nuevo</h2>
-        <p class="muted">{{ username }}</p>
-        <p *ngIf="roles.length">
-          Accediste como <b>{{ roles.join(', ') }}</b>. Usa el menú de arriba para
-          entrar a Trámites o Catálogo.
-        </p>
+      <div class="welcome-card" *ngIf="s.loggedIn">
+        <ng-container *ngIf="s.cargando; else listo">
+          <h2>Cargando…</h2>
+          <p class="muted">Actualizando tu sesión.</p>
+        </ng-container>
+        <ng-template #listo>
+          <h2>Hola de nuevo</h2>
+          <p class="muted">{{ s.username }}</p>
+          <p *ngIf="s.roles.length">
+            Accediste como <b>{{ s.roles.join(', ') }}</b>. Usa el menú de arriba para
+            entrar a Trámites o Catálogo.
+          </p>
+        </ng-template>
       </div>
 
-      <div class="login-card" *ngIf="!loggedIn">
+      <div class="login-card" *ngIf="!s.loggedIn && !s.cargando">
         <h2>Iniciar sesión</h2>
         <p>Usa tu cuenta institucional de Azure AD. No necesitas crear una cuenta nueva.</p>
 
-        <button class="btn btn-microsoft" (click)="login()">
+        <button class="btn btn-microsoft" (click)="session.iniciarSesion()">
           <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true">
             <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
             <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
@@ -62,27 +63,11 @@ import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
   `,
 })
 export class HomeComponent implements OnInit {
-  loggedIn = false;
-  username = '';
-  roles: string[] = [];
+  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', cargando: true };
 
-  constructor(
-    @Inject(MSAL_GUARD_CONFIG) private guardConfig: MsalGuardConfiguration,
-    private msal: MsalService,
-  ) {}
+  constructor(public session: SessionService) {}
 
   ngOnInit(): void {
-    this.refresh();
-  }
-
-  private async refresh(): Promise<void> {
-    const account = this.msal.instance.getActiveAccount();
-    this.loggedIn = !!account;
-    this.username = usernameDe(this.msal);
-    this.roles = account ? await rolesDe(this.msal) : [];
-  }
-
-  login(): void {
-    iniciarSesion(this.msal, this.guardConfig, () => this.refresh());
+    this.session.estado$.subscribe((s) => (this.s = s));
   }
 }

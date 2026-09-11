@@ -1,8 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MsalService } from '@azure/msal-angular';
-import { rolesDe } from '../auth/roles';
+import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from './catalog.service';
 
 @Component({
@@ -52,10 +51,11 @@ export class CatalogComponent implements OnInit {
   enviando = false;
   nuevo = { nombre: '', requisitos: '', cupoDiario: 5 };
 
-  constructor(private service: CatalogService, private msal: MsalService) {}
+  constructor(private service: CatalogService, private session: SessionService) {}
 
-  async ngOnInit(): Promise<void> {
-    this.esAdmin = (await rolesDe(this.msal)).includes('Admin');
+  ngOnInit(): void {
+    // Se resuscribe con cada cambio de cuenta desde la topbar, no solo al entrar a la pantalla.
+    this.session.estado$.subscribe((s) => (this.esAdmin = s.roles.includes('Admin')));
     this.cargar();
   }
 
