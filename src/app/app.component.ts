@@ -9,13 +9,8 @@ import {
   MSAL_GUARD_CONFIG,
   MsalGuardConfiguration,
 } from '@azure/msal-angular';
-import {
-  AuthenticationResult,
-  EventMessage,
-  EventType,
-  InteractionStatus,
-} from '@azure/msal-browser';
-import { rolesDe, usernameDe } from './auth/roles';
+import { EventMessage, EventType, InteractionStatus } from '@azure/msal-browser';
+import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
 
 @Component({
   selector: 'app-root',
@@ -23,18 +18,20 @@ import { rolesDe, usernameDe } from './auth/roles';
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <header class="topbar">
-      <nav>
-        <a routerLink="" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><strong>BarrioDigital</strong></a>
-        <a *ngIf="loggedIn" routerLink="/requests" routerLinkActive="active">Trámites</a>
-        <a *ngIf="loggedIn" routerLink="/catalog" routerLinkActive="active">Catálogo</a>
+      <a routerLink="" class="brand"><span class="dot">◆</span>BarrioDigital</a>
+      <nav *ngIf="loggedIn">
+        <a routerLink="/requests" routerLinkActive="active">Trámites</a>
+        <a routerLink="/catalog" routerLinkActive="active">Catálogo</a>
       </nav>
-      <span>
-        <span class="muted" style="color:#cfe0f2; margin-right:12px" *ngIf="username">
-          {{ username }}<span *ngIf="roles.length"> · {{ roles.join(', ') }}</span>
+      <span style="flex: 1"></span>
+      <div class="session">
+        <span class="who" *ngIf="username">
+          {{ username }}
+          <ng-container *ngIf="roles.length"><br /><span class="role">{{ roles.join(', ') }}</span></ng-container>
         </span>
-        <button *ngIf="!loggedIn" (click)="login()">Iniciar sesión</button>
-        <button *ngIf="loggedIn" (click)="logout()">Cerrar sesión</button>
-      </span>
+        <button class="btn btn-ghost" *ngIf="!loggedIn" (click)="login()">Iniciar sesión</button>
+        <button class="btn btn-ghost" *ngIf="loggedIn" (click)="logout()">Cerrar sesión</button>
+      </div>
     </header>
     <main>
       <router-outlet></router-outlet>
@@ -55,16 +52,14 @@ export class AppComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    this.refresh();
+
     this.broadcast.msalSubject$
       .pipe(
         filter((m: EventMessage) => m.eventType === EventType.LOGIN_SUCCESS),
         takeUntil(this.destroying$),
       )
-      .subscribe((m: EventMessage) => {
-        const payload = m.payload as AuthenticationResult;
-        this.msal.instance.setActiveAccount(payload.account);
-        this.refresh();
-      });
+      .subscribe(() => this.refresh());
 
     this.broadcast.inProgress$
       .pipe(
@@ -77,27 +72,14 @@ export class AppComponent implements OnInit {
   private refresh(): void {
     const account =
       this.msal.instance.getActiveAccount() ?? this.msal.instance.getAllAccounts()[0];
-    if (account) {
-      this.msal.instance.setActiveAccount(account);
-      this.loggedIn = true;
-      this.username = usernameDe(this.msal);
-      this.roles = rolesDe(this.msal);
-    } else {
-      this.loggedIn = false;
-      this.username = '';
-      this.roles = [];
-    }
+    if (account) this.msal.instance.setActiveAccount(account);
+    this.loggedIn = !!account;
+    this.username = usernameDe(this.msal);
+    this.roles = rolesDe(this.msal);
   }
 
   login(): void {
-    const scopes = (this.guardConfig.authRequest as { scopes?: string[] })?.scopes ?? [];
-    this.msal.loginPopup({ scopes }).subscribe({
-      next: (res: AuthenticationResult) => {
-        this.msal.instance.setActiveAccount(res.account);
-        this.refresh();
-      },
-      error: (e) => console.error(e),
-    });
+    iniciarSesion(this.msal, this.guardConfig, () => this.refresh());
   }
 
   logout(): void {
