@@ -69,7 +69,7 @@ export class CatalogComponent implements OnInit {
         this.nuevo = { nombre: '', requisitos: '', cupoDiario: 5 };
         this.cargar();
       },
-      error: (e) => (this.error = `No se pudo crear (${e.status})`),
+      error: (e) => (this.error = e.error?.detail ?? `No se pudo crear (${e.status})`),
     });
   }
 }
