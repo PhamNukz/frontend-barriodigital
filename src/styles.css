@@ -1,0 +1,17 @@
+:root { font-family: system-ui, "Segoe UI", Roboto, sans-serif; color: #1b1f24; }
+body { margin: 0; background: #f5f6f8; }
+.topbar { display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; background: #12324f; color: #fff; }
+.topbar nav a { color: #cfe0f2; margin-right: 14px; text-decoration: none; }
+.topbar nav a.active { color: #fff; font-weight: 600; }
+.topbar button { background: #1c6feb; color: #fff; border: 0; padding: 8px 14px;
+  border-radius: 6px; cursor: pointer; }
+main { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3e6ea; }
+form.card { background: #fff; padding: 16px; border: 1px solid #e3e6ea; border-radius: 8px; margin-bottom: 20px; }
+form.card input, form.card textarea, form.card select { display: block; margin: 6px 0; padding: 6px; width: 280px; }
+.muted { color: #6b7480; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #e6edf5; }
+.badge.RESUELTO { background: #d9f2df; }
+.badge.RECHAZADO { background: #f9d9d9; }
