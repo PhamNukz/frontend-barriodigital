@@ -50,3 +50,29 @@ export function iniciarSesion(
     error: (e) => console.error(e),
   });
 }
+
+/** Todas las cuentas que MSAL tiene cacheadas en este navegador (no solo la activa). */
+export function cuentasDisponibles(msal: MsalService) {
+  return msal.instance.getAllAccounts();
+}
+
+/**
+ * Suma una cuenta nueva sin cerrar la sesion actual: prompt "select_account"
+ * fuerza el selector de Microsoft en vez de reusar la sesion SSO de la cuenta
+ * activa. La cuenta queda cacheada junto a las demas; cambiar entre ellas
+ * despues es solo setActiveAccount (sin volver a pasar por el popup).
+ */
+export function agregarCuenta(
+  msal: MsalService,
+  guardConfig: MsalGuardConfiguration,
+  onSuccess: () => void,
+): void {
+  const scopes = (guardConfig.authRequest as { scopes?: string[] })?.scopes ?? [];
+  msal.loginPopup({ scopes, prompt: 'select_account' }).subscribe({
+    next: (res: AuthenticationResult) => {
+      msal.instance.setActiveAccount(res.account);
+      onSuccess();
+    },
+    error: (e) => console.error(e),
+  });
+}

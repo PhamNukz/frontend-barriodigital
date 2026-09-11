@@ -1,5 +1,6 @@
 import { Component, Inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
@@ -9,13 +10,13 @@ import {
   MSAL_GUARD_CONFIG,
   MsalGuardConfiguration,
 } from '@azure/msal-angular';
-import { EventMessage, EventType, InteractionStatus } from '@azure/msal-browser';
-import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
+import { AccountInfo, EventMessage, EventType, InteractionStatus } from '@azure/msal-browser';
+import { agregarCuenta, cuentasDisponibles, iniciarSesion, rolesDe, usernameDe } from './auth/roles';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, FormsModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <header class="topbar">
       <a routerLink="" class="brand"><span class="dot">◆</span>BarrioDigital</a>
@@ -24,14 +25,25 @@ import { iniciarSesion, rolesDe, usernameDe } from './auth/roles';
         <a routerLink="/catalog" routerLinkActive="active">Catálogo</a>
       </nav>
       <span style="flex: 1"></span>
-      <div class="session">
-        <span class="who" *ngIf="username">
-          {{ username }}
+      <div class="session" *ngIf="loggedIn">
+        <select
+          *ngIf="accounts.length > 1"
+          class="account-switch"
+          [ngModel]="activeAccountId"
+          (ngModelChange)="cambiarCuenta($event)"
+          name="cuenta"
+          title="Cambiar de cuenta sin cerrar sesión"
+        >
+          <option *ngFor="let a of accounts" [value]="a.homeAccountId">{{ a.username }}</option>
+        </select>
+        <span class="who">
+          <ng-container *ngIf="accounts.length <= 1">{{ username }}</ng-container>
           <ng-container *ngIf="roles.length"><br /><span class="role">{{ roles.join(', ') }}</span></ng-container>
         </span>
-        <button class="btn btn-ghost" *ngIf="!loggedIn" (click)="login()">Iniciar sesión</button>
-        <button class="btn btn-ghost" *ngIf="loggedIn" (click)="logout()">Cerrar sesión</button>
+        <button class="btn btn-ghost btn-sm" (click)="onAgregarCuenta()">+ Cuenta</button>
+        <button class="btn btn-ghost" (click)="logout()">Cerrar sesión</button>
       </div>
+      <button class="btn btn-ghost" *ngIf="!loggedIn" (click)="login()">Iniciar sesión</button>
     </header>
     <main>
       <router-outlet></router-outlet>
@@ -42,6 +54,8 @@ export class AppComponent implements OnInit {
   loggedIn = false;
   username = '';
   roles: string[] = [];
+  accounts: AccountInfo[] = [];
+  activeAccountId = '';
 
   private readonly destroying$ = new Subject<void>();
 
@@ -75,7 +89,22 @@ export class AppComponent implements OnInit {
     if (account) this.msal.instance.setActiveAccount(account);
     this.loggedIn = !!account;
     this.username = usernameDe(this.msal);
+    this.accounts = cuentasDisponibles(this.msal);
+    this.activeAccountId = account?.homeAccountId ?? '';
     this.roles = account ? await rolesDe(this.msal) : [];
+  }
+
+  /** Cambia la cuenta activa sin volver a pasar por el login popup. */
+  cambiarCuenta(homeAccountId: string): void {
+    const cuenta = this.accounts.find((a) => a.homeAccountId === homeAccountId);
+    if (cuenta) {
+      this.msal.instance.setActiveAccount(cuenta);
+      this.refresh();
+    }
+  }
+
+  onAgregarCuenta(): void {
+    agregarCuenta(this.msal, this.guardConfig, () => this.refresh());
   }
 
   login(): void {
