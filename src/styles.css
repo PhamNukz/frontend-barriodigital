@@ -210,6 +210,9 @@ table { width: 100%; border-collapse: collapse; background: var(--paper-raised);
   border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
 th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+tbody tr { transition: background 0.12s; }
+tbody tr:hover { background: rgba(31,92,83,0.05); }
+tbody tr:last-child td { border-bottom: none; }
 form.card {
   background: var(--paper-raised); padding: 26px 28px; border: 1px solid var(--line);
   border-left: 4px solid var(--terracotta); border-radius: 14px; margin-bottom: 28px;
@@ -237,6 +240,22 @@ form.card input:focus, form.card textarea:focus, form.card select:focus {
 }
 form.card input::placeholder, form.card textarea::placeholder { color: #9aa6a4; }
 form.card > button { margin-top: 20px; }
+
+form.card select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 40px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%231f5c53'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+form.card select:hover { border-color: var(--teal); }
+form.card select option {
+  padding: 10px; background: var(--paper-raised); color: var(--ink);
+}
+form.card select option:checked, form.card select option:hover {
+  background: var(--teal); color: #fff;
+}
 .muted { color: var(--ink-soft); }
 .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 600;
   background: rgba(31,92,83,0.12); color: var(--teal-deep); }
