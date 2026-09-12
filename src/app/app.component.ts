@@ -32,8 +32,14 @@ import { Sesion, SessionService } from './auth/session.service';
           <ng-container *ngIf="!s.cargando">
             <ng-container *ngIf="s.accounts.length <= 1">{{ s.username }}</ng-container>
             <ng-container *ngIf="s.roles.length"><br /><span class="role">{{ s.roles.join(', ') }}</span></ng-container>
+            <ng-container *ngIf="s.exp as exp">
+              <br /><span class="token-exp" [class.token-exp-vencido]="expiraEn(exp) <= 0">
+                Token {{ expiraEn(exp) > 0 ? 'expira en ' + expiraEn(exp) + ' min' : 'expirado' }}
+              </span>
+            </ng-container>
           </ng-container>
         </span>
+        <button class="btn btn-ghost btn-sm" (click)="session.renovarToken()" title="Pedir un access token nuevo">↻ Renovar</button>
         <button class="btn btn-ghost btn-sm" (click)="session.agregarCuenta()">+ Cuenta</button>
         <button class="btn btn-ghost" (click)="session.cerrarSesion()">Cerrar sesión</button>
       </div>
@@ -45,12 +51,17 @@ import { Sesion, SessionService } from './auth/session.service';
   `,
 })
 export class AppComponent implements OnInit {
-  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', cargando: true };
+  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
   constructor(public session: SessionService) {}
 
   ngOnInit(): void {
     this.session.estado$.subscribe((s) => (this.s = s));
     this.session.refrescar();
+  }
+
+  /** Minutos que faltan para que expire el access token (exp es epoch en segundos). */
+  expiraEn(exp: number): number {
+    return Math.round((exp * 1000 - Date.now()) / 60000);
   }
 }

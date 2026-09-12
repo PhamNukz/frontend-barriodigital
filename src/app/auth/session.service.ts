@@ -3,7 +3,7 @@ import { BehaviorSubject } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { MsalService, MsalBroadcastService, MSAL_GUARD_CONFIG, MsalGuardConfiguration } from '@azure/msal-angular';
 import { InteractionStatus } from '@azure/msal-browser';
-import { agregarCuenta, cuentasDisponibles, iniciarSesion, rolesDe, usernameDe } from './roles';
+import { agregarCuenta, cuentasDisponibles, iniciarSesion, tokenInfoDe, usernameDe } from './roles';
 
 export interface Sesion {
   loggedIn: boolean;
@@ -11,11 +11,13 @@ export interface Sesion {
   roles: string[];
   accounts: ReturnType<typeof cuentasDisponibles>;
   activeAccountId: string;
+  /** Expiracion del access token (epoch en segundos), o null si no hay sesion. */
+  exp: number | null;
   /** true mientras se pide el access token para leer roles (login, logout, cambio de cuenta). */
   cargando: boolean;
 }
 
-const SESION_INICIAL: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', cargando: true };
+const SESION_INICIAL: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
 /**
  * Unica fuente de verdad de la sesion. Antes cada pantalla (topbar, home,
@@ -39,18 +41,25 @@ export class SessionService {
       .subscribe(() => this.refrescar());
   }
 
-  async refrescar(): Promise<void> {
+  async refrescar(forceRefresh = false): Promise<void> {
     this.sesion$.next({ ...this.sesion$.value, cargando: true });
     const account = this.msal.instance.getActiveAccount() ?? this.msal.instance.getAllAccounts()[0];
     if (account) this.msal.instance.setActiveAccount(account);
+    const info = account ? await tokenInfoDe(this.msal, forceRefresh) : { roles: [], exp: null };
     this.sesion$.next({
       loggedIn: !!account,
       username: usernameDe(this.msal),
-      roles: account ? await rolesDe(this.msal) : [],
+      roles: info.roles,
       accounts: cuentasDisponibles(this.msal),
       activeAccountId: account?.homeAccountId ?? '',
+      exp: info.exp,
       cargando: false,
     });
+  }
+
+  /** Fuerza un access token nuevo en vez de usar el cacheado (boton "renovar" de la topbar). */
+  renovarToken(): Promise<void> {
+    return this.refrescar(true);
   }
 
   /** Cambia la cuenta activa sin volver a pasar por el popup de login. */

@@ -7,6 +7,12 @@ export function usernameDe(msal: MsalService): string {
   return msal.instance.getActiveAccount()?.username ?? '';
 }
 
+export interface TokenInfo {
+  roles: string[];
+  /** Expiracion del access token (claim `exp`, epoch en segundos), o null si no se pudo leer. */
+  exp: number | null;
+}
+
 /**
  * Los App Roles se asignan sobre el service principal de la API
  * (barriodigital-api), no sobre el de la SPA. Por eso NO estan en el
@@ -14,25 +20,35 @@ export function usernameDe(msal: MsalService): string {
  * API, scope apiScope) -- hay que decodificar ese token, no idTokenClaims.
  * Se detecto porque `curl` con el access_token si mostraba "roles", pero la
  * topbar (que leia idTokenClaims) siempre los veia vacios.
+ *
+ * `forceRefresh` pide un token nuevo a Azure AD en vez de usar el cacheado
+ * -- lo usa el boton "renovar" de la topbar (B4).
  */
-export async function rolesDe(msal: MsalService): Promise<string[]> {
+export async function tokenInfoDe(msal: MsalService, forceRefresh = false): Promise<TokenInfo> {
   const account = msal.instance.getActiveAccount();
-  if (!account) return [];
+  if (!account) return { roles: [], exp: null };
   try {
-    const result = await msal.instance.acquireTokenSilent({ scopes: [environment.apiScope], account });
-    return rolesDelAccessToken(result.accessToken);
+    const result = await msal.instance.acquireTokenSilent({ scopes: [environment.apiScope], account, forceRefresh });
+    return claimsDelAccessToken(result.accessToken);
   } catch (e) {
-    console.error('No se pudo leer el access token para roles', e);
-    return [];
+    console.error('No se pudo leer el access token', e);
+    return { roles: [], exp: null };
   }
 }
 
-function rolesDelAccessToken(accessToken: string): string[] {
+export async function rolesDe(msal: MsalService): Promise<string[]> {
+  return (await tokenInfoDe(msal)).roles;
+}
+
+function claimsDelAccessToken(accessToken: string): TokenInfo {
   const payload = accessToken.split('.')[1];
-  if (!payload) return [];
+  if (!payload) return { roles: [], exp: null };
   const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
   const claims = JSON.parse(json) as Record<string, unknown>;
-  return Array.isArray(claims['roles']) ? (claims['roles'] as string[]) : [];
+  return {
+    roles: Array.isArray(claims['roles']) ? (claims['roles'] as string[]) : [],
+    exp: typeof claims['exp'] === 'number' ? (claims['exp'] as number) : null,
+  };
 }
 
 /** Abre el popup de Microsoft con el scope de la API. Usado desde la topbar y desde Home. */

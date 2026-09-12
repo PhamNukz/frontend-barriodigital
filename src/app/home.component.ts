@@ -63,7 +63,7 @@ import { Sesion, SessionService } from './auth/session.service';
   `,
 })
 export class HomeComponent implements OnInit {
-  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', cargando: true };
+  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
   constructor(public session: SessionService) {}
 
