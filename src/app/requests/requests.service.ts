@@ -25,9 +25,13 @@ export interface CrearTramite {
 }
 
 export interface CupoInfo {
+  tipoId: number;
+  nombre: string;
   cupoDiario: number;
   admitidosHoy: number;
   disponible: number;
+  /** Momento en que se reinicia el cupo (medianoche local); lo calcula el backend. */
+  reinicia: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -50,7 +54,8 @@ export class RequestsService {
     return this.http.put<Tramite>(`${this.base}/${id}/status`, { status });
   }
 
-  cupoDe(tipoId: number): Observable<CupoInfo> {
-    return this.http.get<CupoInfo>(`${this.base}/tipos/${tipoId}/cupo`);
+  /** Cupo de todos los tipos en una sola llamada (la tabla lo necesita por fila). */
+  cupos(): Observable<CupoInfo[]> {
+    return this.http.get<CupoInfo[]>(`${this.base}/cupos`);
   }
 }

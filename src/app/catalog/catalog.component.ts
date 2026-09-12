@@ -39,7 +39,8 @@ import { CatalogService, TipoTramite } from './catalog.service';
     </div>
 
     <!-- Skeleton: misma estructura que la tabla real para que no salte el layout -->
-    <table *ngIf="cargando" class="skeleton-table" aria-hidden="true">
+    <div class="tabla-scroll" *ngIf="cargando">
+      <table class="skeleton-table" aria-hidden="true">
       <thead>
         <tr><th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th></tr>
       </thead>
@@ -52,10 +53,12 @@ import { CatalogService, TipoTramite } from './catalog.service';
           <td><span class="skeleton skeleton-sm"></span></td>
         </tr>
       </tbody>
-    </table>
+      </table>
+    </div>
 
     <ng-container *ngIf="!cargando && !errorCarga">
-      <table *ngIf="tipos.length; else vacio">
+      <div class="tabla-scroll" *ngIf="tipos.length; else vacio">
+        <table>
         <thead>
           <tr><th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th></tr>
         </thead>
@@ -65,7 +68,8 @@ import { CatalogService, TipoTramite } from './catalog.service';
             <td>{{ t.cupoDiario }}</td><td>{{ t.activo ? 'Sí' : 'No' }}</td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <ng-template #vacio><p class="muted">Sin tipos de trámite registrados.</p></ng-template>
     </ng-container>
   `,

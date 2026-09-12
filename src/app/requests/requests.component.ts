@@ -26,16 +26,18 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
       <p class="card-title">Nuevo trámite</p>
 
       <label for="tipo">Tipo de trámite</label>
-      <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" (ngModelChange)="onTipoChange($event)" required>
+      <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" required>
         <option [ngValue]="null" disabled>Selecciona un tipo</option>
         <option *ngFor="let t of tipos" [ngValue]="t.id">{{ t.nombre }}</option>
       </select>
-      <p class="muted cupo-hint" *ngIf="cargandoCupo">Consultando cupo…</p>
-      <p class="muted cupo-hint" *ngIf="cupoInfo && !cargandoCupo">
-        <ng-container *ngIf="cupoInfo.disponible > 0; else agotado">
-          Quedan <b>{{ cupoInfo.disponible }}</b> de {{ cupoInfo.cupoDiario }} cupos hoy para este trámite.
+      <p class="muted cupo-hint" *ngIf="cupoDe(nuevo.tipoId) as c">
+        <ng-container *ngIf="c.disponible > 0; else agotado">
+          Quedan <b>{{ c.disponible }}</b> de {{ c.cupoDiario }} cupos hoy para este trámite.
         </ng-container>
-        <ng-template #agotado>Cupo diario agotado ({{ cupoInfo.cupoDiario }}/día) — igual puedes ingresarlo, quedará en espera.</ng-template>
+        <ng-template #agotado>
+          Cupo diario agotado ({{ c.cupoDiario }}/día) — igual puedes ingresarlo, quedará en espera
+          hasta que el cupo se reinicie {{ textoReinicio(c) }}.
+        </ng-template>
       </p>
 
       <label for="descripcion">Descripción</label>
@@ -58,7 +60,8 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
     </div>
 
     <!-- Skeleton: misma estructura que la tabla real para que no salte el layout -->
-    <table *ngIf="cargando" class="skeleton-table" aria-hidden="true">
+    <div class="tabla-scroll" *ngIf="cargando">
+      <table class="skeleton-table" aria-hidden="true">
       <thead>
         <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
       </thead>
@@ -72,10 +75,12 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
           <td *ngIf="esFuncionarioOAdmin"><span class="skeleton skeleton-btn"></span></td>
         </tr>
       </tbody>
-    </table>
+      </table>
+    </div>
 
     <ng-container *ngIf="!cargando && !errorCarga">
-      <table *ngIf="tramites.length; else vacio">
+      <div class="tabla-scroll" *ngIf="tramites.length; else vacio">
+        <table>
         <thead>
           <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
         </thead>
@@ -86,15 +91,28 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
             <td>{{ t.funcionarioAsignado }}</td>
             <td *ngIf="esFuncionarioOAdmin">
               <div class="row-actions" *ngIf="!esOptimista(t)">
-                <button class="btn btn-outline btn-sm" *ngIf="siguienteEstado(t.estado) as sig" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, sig)">
-                  {{ actualizando.has(t.id) ? 'Guardando…' : '→ ' + sig }}
-                </button>
+                <ng-container *ngIf="siguienteEstado(t.estado) as sig">
+                  <!-- Admitir consume cupo: si no queda, se bloquea aqui y se explica por que,
+                       en vez de dejar pulsar y responder 409 con el mensaje lejos de la fila. -->
+                  <button
+                    class="btn btn-outline btn-sm"
+                    [disabled]="actualizando.has(t.id) || sinCupo(t, sig)"
+                    [title]="sinCupo(t, sig) ? 'Sin cupo disponible hoy para este tipo de trámite' : ''"
+                    (click)="avanzar(t, sig)"
+                  >
+                    {{ actualizando.has(t.id) ? 'Guardando…' : '→ ' + sig }}
+                  </button>
+                </ng-container>
                 <button class="btn btn-danger btn-sm" *ngIf="puedeRechazar(t.estado)" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
               </div>
+              <p class="sin-cupo" *ngIf="cupoAgotadoDe(t) as c">
+                Sin cupo hoy ({{ c.admitidosHoy }}/{{ c.cupoDiario }} usados) · se reinicia {{ textoReinicio(c) }}
+              </p>
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <ng-template #vacio><p class="muted">Sin trámites.</p></ng-template>
     </ng-container>
   `,
@@ -102,9 +120,9 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
 export class RequestsComponent implements OnInit {
   tramites: Tramite[] = [];
   tipos: TipoTramite[] = [];
-  cupoInfo: CupoInfo | null = null;
+  /** Cupo del dia por tipoId; lo usa el formulario y cada fila de la tabla. */
+  cupos = new Map<number, CupoInfo>();
   cargando = true;
-  cargandoCupo = false;
   /** Separado de `error` (acciones): distingue "no se pudo cargar" de "no hay datos". */
   errorCarga = '';
   error = '';
@@ -139,6 +157,7 @@ export class RequestsComponent implements OnInit {
       if (this.esVecinoOFuncionario) {
         this.catalogService.listar().subscribe({ next: (data) => (this.tipos = data) });
       }
+      this.cargarCupos();
     });
     this.cargar();
   }
@@ -160,13 +179,40 @@ export class RequestsComponent implements OnInit {
     return t.id;
   }
 
-  onTipoChange(tipoId: number | null): void {
-    this.cupoInfo = null;
-    if (tipoId == null) return;
-    this.cargandoCupo = true;
-    this.service.cupoDe(tipoId)
-      .pipe(finalize(() => (this.cargandoCupo = false)))
-      .subscribe({ next: (c) => (this.cupoInfo = c), error: () => (this.cupoInfo = null) });
+  cargarCupos(): void {
+    this.service.cupos().subscribe({
+      next: (lista) => (this.cupos = new Map(lista.map((c) => [c.tipoId, c]))),
+      // El cupo es informativo: si falla, la tabla y el formulario siguen usables.
+      error: () => this.cupos.clear(),
+    });
+  }
+
+  cupoDe(tipoId: number | null): CupoInfo | undefined {
+    return tipoId == null ? undefined : this.cupos.get(tipoId);
+  }
+
+  /** Solo admitir consume cupo; el resto de las transiciones no. */
+  sinCupo(t: Tramite, siguiente: EstadoTramite): boolean {
+    if (siguiente !== 'ADMITIDO') return false;
+    const c = this.cupos.get(t.tipoId);
+    return !!c && c.disponible <= 0;
+  }
+
+  /** Devuelve el cupo solo si esta agotado y este tramite espera ser admitido. */
+  cupoAgotadoDe(t: Tramite): CupoInfo | undefined {
+    return this.sinCupo(t, 'ADMITIDO') && this.siguienteEstado(t.estado) === 'ADMITIDO'
+      ? this.cupos.get(t.tipoId)
+      : undefined;
+  }
+
+  /** "a las 00:00 (en 8 h 20 min)" -- la hora la define el backend segun su zona. */
+  textoReinicio(c: CupoInfo): string {
+    const reinicia = new Date(c.reinicia);
+    // hour12:false -> "00:00" y no "12:00 a. m.", que se lee como mediodia.
+    const hora = reinicia.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const minutos = Math.max(0, Math.round((reinicia.getTime() - Date.now()) / 60000));
+    const falta = minutos >= 60 ? `${Math.floor(minutos / 60)} h ${minutos % 60} min` : `${minutos} min`;
+    return `a las ${hora} (en ${falta})`;
   }
 
   /** Un tramite optimista es el placeholder local que se muestra antes de que el backend confirme la creacion. */
@@ -183,7 +229,6 @@ export class RequestsComponent implements OnInit {
 
     const cuerpo = { tipoId: this.nuevo.tipoId, descripcion: this.nuevo.descripcion, direccion: this.nuevo.direccion };
     this.nuevo = { tipoId: null, descripcion: '', direccion: '' };
-    this.cupoInfo = null;
 
     // Optimistic update: se muestra de inmediato, sin esperar la respuesta del backend.
     const tempId = -Date.now();
@@ -236,7 +281,11 @@ export class RequestsComponent implements OnInit {
     this.service.cambiarEstado(t.id, nuevo)
       .pipe(finalize(() => this.actualizando.delete(t.id)))
       .subscribe({
-        next: (real) => Object.assign(t, real),
+        next: (real) => {
+          Object.assign(t, real);
+          // Admitir consume un cupo: hay que reflejarlo en las demas filas del mismo tipo.
+          if (nuevo === 'ADMITIDO') this.cargarCupos();
+        },
         error: (e) => {
           t.estado = anterior;
           this.error = e.error?.detail ?? `No se pudo cambiar el estado (${e.status})`;

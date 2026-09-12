@@ -208,6 +208,10 @@ main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 64px; }
 }
 
 /* ---------- contenido interno ---------- */
+/* La tabla scrollea dentro de su contenedor en vez de derramarse fuera de main
+   (con muchas columnas se salia de la tarjeta y en pantallas angostas hacia
+   scrollear la pagina entera). */
+.tabla-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; background: var(--paper-raised);
   border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
@@ -260,6 +264,22 @@ form.card select option:checked, form.card select option:hover {
 }
 .muted { color: var(--ink-soft); }
 .cupo-hint { margin: 8px 0 0; font-size: 0.85rem; }
+/* Aviso de cupo agotado, junto al boton que queda bloqueado por esa razon. */
+.sin-cupo {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--terracotta-deep);
+  /* Ensancha la columna de acciones: sin esto el aviso caia en lineas de 2-3 palabras. */
+  min-width: 210px;
+}
+button.btn-outline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--ink-soft);
+  border-color: var(--line);
+}
 
 /* Fallo de carga: se distingue del estado vacio para no dar a entender que no hay datos. */
 .load-error {
