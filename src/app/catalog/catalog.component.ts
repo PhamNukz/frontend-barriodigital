@@ -32,6 +32,12 @@ import { CatalogService, TipoTramite } from './catalog.service';
 
     <p class="muted" *ngIf="error">{{ error }}</p>
 
+    <!-- Fallo de carga: NO se muestra el estado vacio, que haria creer que no hay datos -->
+    <div class="load-error" *ngIf="errorCarga && !cargando">
+      <p>{{ errorCarga }}</p>
+      <button class="btn btn-outline btn-sm" (click)="cargar()">Reintentar</button>
+    </div>
+
     <!-- Skeleton: misma estructura que la tabla real para que no salte el layout -->
     <table *ngIf="cargando" class="skeleton-table" aria-hidden="true">
       <thead>
@@ -48,7 +54,7 @@ import { CatalogService, TipoTramite } from './catalog.service';
       </tbody>
     </table>
 
-    <ng-container *ngIf="!cargando">
+    <ng-container *ngIf="!cargando && !errorCarga">
       <table *ngIf="tipos.length; else vacio">
         <thead>
           <tr><th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th></tr>
@@ -67,6 +73,8 @@ import { CatalogService, TipoTramite } from './catalog.service';
 export class CatalogComponent implements OnInit {
   tipos: TipoTramite[] = [];
   cargando = true;
+  /** Separado de `error` (acciones): distingue "no se pudo cargar" de "no hay datos". */
+  errorCarga = '';
   error = '';
   esAdmin = false;
   enviando = false;
@@ -88,11 +96,14 @@ export class CatalogComponent implements OnInit {
 
   cargar(): void {
     this.cargando = true;
+    this.errorCarga = '';
     this.service.listar()
       .pipe(finalize(() => (this.cargando = false)))
       .subscribe({
         next: (data) => (this.tipos = data),
-        error: (e) => (this.error = e.error?.detail ?? `No se pudo cargar el catálogo (${e.status})`),
+        error: (e) => {
+          this.errorCarga = e.error?.detail ?? `No se pudo cargar el catálogo (${e.status}).`;
+        },
       });
   }
 

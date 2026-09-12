@@ -51,6 +51,12 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
 
     <p class="muted" *ngIf="error">{{ error }}</p>
 
+    <!-- Fallo de carga: NO se muestra el estado vacio, que haria creer que no hay tramites -->
+    <div class="load-error" *ngIf="errorCarga && !cargando">
+      <p>{{ errorCarga }}</p>
+      <button class="btn btn-outline btn-sm" (click)="cargar()">Reintentar</button>
+    </div>
+
     <!-- Skeleton: misma estructura que la tabla real para que no salte el layout -->
     <table *ngIf="cargando" class="skeleton-table" aria-hidden="true">
       <thead>
@@ -68,7 +74,7 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
       </tbody>
     </table>
 
-    <ng-container *ngIf="!cargando">
+    <ng-container *ngIf="!cargando && !errorCarga">
       <table *ngIf="tramites.length; else vacio">
         <thead>
           <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
@@ -99,6 +105,8 @@ export class RequestsComponent implements OnInit {
   cupoInfo: CupoInfo | null = null;
   cargando = true;
   cargandoCupo = false;
+  /** Separado de `error` (acciones): distingue "no se pudo cargar" de "no hay datos". */
+  errorCarga = '';
   error = '';
   esVecinoOFuncionario = false;
   esFuncionarioOAdmin = false;
@@ -137,11 +145,14 @@ export class RequestsComponent implements OnInit {
 
   cargar(): void {
     this.cargando = true;
+    this.errorCarga = '';
     this.service.listar()
       .pipe(finalize(() => (this.cargando = false)))
       .subscribe({
         next: (data) => (this.tramites = data),
-        error: (e) => (this.error = e.error?.detail ?? `No se pudieron cargar los trámites (${e.status})`),
+        error: (e) => {
+          this.errorCarga = e.error?.detail ?? `No se pudieron cargar los trámites (${e.status}).`;
+        },
       });
   }
 
