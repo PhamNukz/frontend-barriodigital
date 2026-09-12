@@ -333,10 +333,23 @@ tr.optimista { opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
-.badge { padding: 3px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 600;
-  background: rgba(31,92,83,0.12); color: var(--teal-deep); }
-.badge.RESUELTO { background: rgba(31,92,83,0.18); }
-.badge.RECHAZADO { background: rgba(193,85,58,0.16); color: var(--terracotta-deep); }
+/* Un color por estado: el avance del tramite se lee de un vistazo, sin leer el texto.
+   Gris -> ambar -> azul -> verde siguiendo el flujo; rojo para el rechazo. */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badge.INGRESADO  { background: rgba(23,40,42,0.08);   color: var(--ink-soft);      border-color: rgba(23,40,42,0.15); }
+.badge.ADMITIDO   { background: rgba(191,138,26,0.14); color: #8a6104;              border-color: rgba(191,138,26,0.3); }
+.badge.EN_GESTION { background: rgba(38,101,168,0.13); color: #1d5288;              border-color: rgba(38,101,168,0.28); }
+.badge.EN_TERRENO { background: rgba(106,73,158,0.13); color: #543a80;              border-color: rgba(106,73,158,0.28); }
+.badge.RESUELTO   { background: rgba(31,92,83,0.16);   color: var(--teal-deep);     border-color: rgba(31,92,83,0.32); }
+.badge.RECHAZADO  { background: rgba(193,85,58,0.16);  color: var(--terracotta-deep); border-color: rgba(193,85,58,0.32); }
 
 /* Edicion en linea del catalogo */
 .inline-input {
@@ -353,3 +366,50 @@ tr.optimista { opacity: 0.6; }
 .inline-num { max-width: 90px; }
 button.btn-ghost.btn-cancelar { background: rgba(23,40,42,0.07); color: var(--ink-soft); }
 button.btn-ghost.btn-cancelar:hover { background: rgba(23,40,42,0.13); }
+
+/* Ancho fijo de los botones de accion: el texto del estado cambia de largo
+   ("Admitido" vs "En gestion") y antes la columna se encogia y estiraba por fila. */
+button.btn-accion { min-width: 132px; text-align: center; }
+
+/* Tipo de tramite y su cupo del dia, en la propia fila */
+.col-tipo { line-height: 1.35; }
+.cupo-fila { display: block; font-size: 0.73rem; color: var(--ink-soft); margin-top: 2px; }
+.cupo-fila.cupo-agotado { color: var(--terracotta-deep); font-weight: 600; }
+
+/* Filtros de la tabla */
+.filtros {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.filtros label {
+  font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.filtro-select {
+  appearance: none; -webkit-appearance: none;
+  padding: 7px 32px 7px 11px;
+  border: 1.5px solid var(--line); border-radius: 8px;
+  font-family: inherit; font-size: 0.88rem; color: var(--ink);
+  background-color: var(--paper-raised); cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%231f5c53'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 15px;
+}
+.filtro-select:hover { border-color: var(--teal); }
+.filtro-select:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,92,83,0.15); }
+.filtros-conteo { font-size: 0.8rem; color: var(--ink-soft); margin-left: auto; }
+
+/* Requisitos del tipo elegido, como guia de que escribir en la descripcion */
+.requisitos-hint {
+  margin: 0 0 8px;
+  padding: 9px 12px;
+  background: rgba(31,92,83,0.07);
+  border-left: 3px solid var(--teal);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.col-tipo { min-width: 150px; }

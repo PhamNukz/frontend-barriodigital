@@ -15,6 +15,16 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
   EN_TERRENO: 'RESUELTO',
 };
 
+/** El backend usa el enum (EN_GESTION); la pantalla no tiene por que mostrar guiones bajos. */
+const ETIQUETA: Record<EstadoTramite, string> = {
+  INGRESADO: 'Ingresado',
+  ADMITIDO: 'Admitido',
+  EN_GESTION: 'En gestión',
+  EN_TERRENO: 'En terreno',
+  RESUELTO: 'Resuelto',
+  RECHAZADO: 'Rechazado',
+};
+
 @Component({
   selector: 'app-requests',
   standalone: true,
@@ -41,7 +51,18 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
       </p>
 
       <label for="descripcion">Descripción</label>
-      <textarea id="descripcion" [(ngModel)]="nuevo.descripcion" name="descripcion" placeholder="Cuéntanos qué necesitas" required></textarea>
+      <!-- Los requisitos que el Admin definio para este tipo en el Catalogo:
+           es la guia de que tiene que escribir el vecino, no un texto generico. -->
+      <p class="requisitos-hint" *ngIf="requisitosDe(nuevo.tipoId) as req">
+        <b>Requisitos de este trámite:</b> {{ req }}
+      </p>
+      <textarea
+        id="descripcion"
+        [(ngModel)]="nuevo.descripcion"
+        name="descripcion"
+        [placeholder]="requisitosDe(nuevo.tipoId) ?? 'Cuéntanos qué necesitas'"
+        required
+      ></textarea>
 
       <label for="direccion">Dirección</label>
       <input id="direccion" [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Calle y número" />
@@ -63,11 +84,12 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
     <div class="tabla-scroll" *ngIf="cargando">
       <table class="skeleton-table" aria-hidden="true">
       <thead>
-        <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
+        <tr><th>ID</th><th>Tipo</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
       </thead>
       <tbody>
         <tr *ngFor="let fila of filasSkeleton">
           <td><span class="skeleton skeleton-sm"></span></td>
+          <td><span class="skeleton"></span></td>
           <td><span class="skeleton"></span></td>
           <td><span class="skeleton skeleton-lg"></span></td>
           <td><span class="skeleton skeleton-badge"></span></td>
@@ -79,41 +101,73 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
     </div>
 
     <ng-container *ngIf="!cargando && !errorCarga">
-      <div class="tabla-scroll" *ngIf="tramites.length; else vacio">
+      <div class="filtros" *ngIf="tramites.length">
+        <label for="f-estado">Estado</label>
+        <select id="f-estado" class="filtro-select" [(ngModel)]="filtroEstado" name="filtroEstado">
+          <option value="">Todos</option>
+          <option *ngFor="let e of ESTADOS" [value]="e">{{ etiqueta(e) }}</option>
+        </select>
+
+        <label for="f-tipo">Tipo</label>
+        <select id="f-tipo" class="filtro-select" [(ngModel)]="filtroTipo" name="filtroTipo">
+          <option [ngValue]="''">Todos</option>
+          <option *ngFor="let c of cupos.values()" [ngValue]="c.tipoId">{{ c.nombre }}</option>
+        </select>
+
+        <span class="filtros-conteo">{{ filtrados.length }} de {{ tramites.length }}</span>
+        <button class="btn btn-ghost btn-sm btn-cancelar" *ngIf="filtroEstado || filtroTipo !== ''" (click)="limpiarFiltros()">
+          Limpiar
+        </button>
+      </div>
+
+      <div class="tabla-scroll" *ngIf="filtrados.length; else vacio">
         <table>
         <thead>
-          <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
+          <tr><th>ID</th><th>Tipo</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
         </thead>
         <tbody>
-          <tr *ngFor="let t of tramites; trackBy: trackById" [class.optimista]="esOptimista(t)">
-            <td>{{ esOptimista(t) ? '…' : t.id }}</td><td>{{ t.vecinoUsername }}</td><td>{{ t.descripcion }}</td>
-            <td><span class="badge" [ngClass]="t.estado">{{ t.estado }}</span></td>
-            <td>{{ t.funcionarioAsignado }}</td>
+          <tr *ngFor="let t of filtrados; trackBy: trackById" [class.optimista]="esOptimista(t)">
+            <td>{{ esOptimista(t) ? '…' : t.id }}</td>
+            <td class="col-tipo">
+              <ng-container *ngIf="cupos.get(t.tipoId) as c; else tipoDesconocido">
+                {{ c.nombre }}
+                <span class="cupo-fila" [class.cupo-agotado]="c.disponible <= 0">
+                  {{ c.admitidosHoy }}/{{ c.cupoDiario }} cupos hoy
+                </span>
+              </ng-container>
+              <ng-template #tipoDesconocido><span class="muted">#{{ t.tipoId }}</span></ng-template>
+            </td>
+            <td [title]="t.vecinoUsername">{{ usuario(t.vecinoUsername) }}</td>
+            <td>{{ t.descripcion }}</td>
+            <td><span class="badge" [ngClass]="t.estado">{{ etiqueta(t.estado) }}</span></td>
+            <td [title]="t.funcionarioAsignado ?? ''">{{ usuario(t.funcionarioAsignado) }}</td>
             <td *ngIf="esFuncionarioOAdmin">
               <div class="row-actions" *ngIf="!esOptimista(t)">
                 <ng-container *ngIf="siguienteEstado(t.estado) as sig">
                   <!-- Admitir consume cupo: si no queda, se bloquea aqui y se explica por que,
                        en vez de dejar pulsar y responder 409 con el mensaje lejos de la fila. -->
                   <button
-                    class="btn btn-outline btn-sm"
+                    class="btn btn-outline btn-sm btn-accion"
                     [disabled]="actualizando.has(t.id) || sinCupo(t, sig)"
                     [title]="sinCupo(t, sig) ? 'Sin cupo disponible hoy para este tipo de trámite' : ''"
                     (click)="avanzar(t, sig)"
                   >
-                    {{ actualizando.has(t.id) ? 'Guardando…' : '→ ' + sig }}
+                    {{ actualizando.has(t.id) ? 'Guardando…' : '→ ' + etiqueta(sig) }}
                   </button>
                 </ng-container>
-                <button class="btn btn-danger btn-sm" *ngIf="puedeRechazar(t.estado)" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
+                <button class="btn btn-danger btn-sm btn-accion" *ngIf="puedeRechazar(t.estado)" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
               </div>
               <p class="sin-cupo" *ngIf="cupoAgotadoDe(t) as c">
-                Sin cupo hoy ({{ c.admitidosHoy }}/{{ c.cupoDiario }} usados) · se reinicia {{ textoReinicio(c) }}
+                Sin cupo hoy · se reinicia {{ textoReinicio(c) }}
               </p>
             </td>
           </tr>
         </tbody>
         </table>
       </div>
-      <ng-template #vacio><p class="muted">Sin trámites.</p></ng-template>
+      <ng-template #vacio>
+        <p class="muted">{{ tramites.length ? 'Ningún trámite coincide con el filtro.' : 'Sin trámites.' }}</p>
+      </ng-template>
     </ng-container>
   `,
 })
@@ -130,6 +184,9 @@ export class RequestsComponent implements OnInit {
   esFuncionarioOAdmin = false;
   enviando = false;
   username = '';
+  filtroEstado: EstadoTramite | '' = '';
+  filtroTipo: number | '' = '';
+  readonly ESTADOS = Object.keys(ETIQUETA) as EstadoTramite[];
   readonly filasSkeleton = [1, 2, 3, 4];
   /** ids de tramites con un cambio de estado en curso (deshabilita sus botones). */
   actualizando = new Set<number>();
@@ -189,6 +246,40 @@ export class RequestsComponent implements OnInit {
 
   cupoDe(tipoId: number | null): CupoInfo | undefined {
     return tipoId == null ? undefined : this.cupos.get(tipoId);
+  }
+
+  etiqueta(estado: EstadoTramite): string {
+    return ETIQUETA[estado];
+  }
+
+  /**
+   * Solo la parte local del correo: todas las cuentas comparten dominio, y
+   * repetirlo en dos columnas dejaba la tabla tan ancha que los botones de
+   * accion quedaban fuera de la vista. El correo completo va en el title.
+   */
+  usuario(email: string | null): string {
+    return email ? email.split('@')[0] : '';
+  }
+
+  /** Requisitos que el Admin definio para el tipo en el Catalogo; guian que escribir. */
+  requisitosDe(tipoId: number | null): string | null {
+    if (tipoId == null) return null;
+    const requisitos = this.tipos.find((t) => t.id === tipoId)?.requisitos;
+    return requisitos?.trim() ? requisitos : null;
+  }
+
+  /** Filtro en memoria: la lista es chica y asi responde sin ida y vuelta al backend. */
+  get filtrados(): Tramite[] {
+    return this.tramites.filter(
+      (t) =>
+        (!this.filtroEstado || t.estado === this.filtroEstado) &&
+        (this.filtroTipo === '' || t.tipoId === this.filtroTipo),
+    );
+  }
+
+  limpiarFiltros(): void {
+    this.filtroEstado = '';
+    this.filtroTipo = '';
   }
 
   /** Solo admitir consume cupo; el resto de las transiciones no. */
