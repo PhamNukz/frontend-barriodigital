@@ -4,8 +4,6 @@
  * NO subas clientId/tenantId reales de produccion a un repo publico.
  */
 export const environment = {
-  production: false,
-
   // App registration de la SPA (barriodigital-spa)
   msalClientId: '12224686-5a51-49f2-94f0-3266db84b91a',
   msalTenantId: 'db9e57fc-5bb8-44fc-8d2f-caf0060c79da',

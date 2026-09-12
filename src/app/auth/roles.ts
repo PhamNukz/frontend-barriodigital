@@ -36,10 +36,6 @@ export async function tokenInfoDe(msal: MsalService, forceRefresh = false): Prom
   }
 }
 
-export async function rolesDe(msal: MsalService): Promise<string[]> {
-  return (await tokenInfoDe(msal)).roles;
-}
-
 function claimsDelAccessToken(accessToken: string): TokenInfo {
   const payload = accessToken.split('.')[1];
   if (!payload) return { roles: [], exp: null };
