@@ -17,6 +17,13 @@ export interface CrearTipoTramite {
   cupoDiario: number;
 }
 
+/** El nombre no se edita: es la clave unica del tipo y la referencian los tramites ya creados. */
+export interface ActualizarTipoTramite {
+  requisitos: string | null;
+  cupoDiario: number;
+  activo: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CatalogService {
   private readonly base = `${environment.apiBaseUrl}/api/catalog/procedures`;
@@ -29,5 +36,9 @@ export class CatalogService {
 
   crear(body: CrearTipoTramite): Observable<TipoTramite> {
     return this.http.post<TipoTramite>(this.base, body);
+  }
+
+  actualizar(id: number, body: ActualizarTipoTramite): Observable<TipoTramite> {
+    return this.http.put<TipoTramite>(`${this.base}/${id}`, body);
   }
 }

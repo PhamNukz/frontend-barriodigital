@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs/operators';
 import { SessionService } from '../auth/session.service';
-import { CatalogService, TipoTramite } from './catalog.service';
+import { ActualizarTipoTramite, CatalogService, TipoTramite } from './catalog.service';
 
 @Component({
   selector: 'app-catalog',
@@ -42,7 +42,10 @@ import { CatalogService, TipoTramite } from './catalog.service';
     <div class="tabla-scroll" *ngIf="cargando">
       <table class="skeleton-table" aria-hidden="true">
       <thead>
-        <tr><th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th></tr>
+        <tr>
+          <th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th>
+          <th *ngIf="esAdmin"></th>
+        </tr>
       </thead>
       <tbody>
         <tr *ngFor="let fila of filasSkeleton">
@@ -51,6 +54,7 @@ import { CatalogService, TipoTramite } from './catalog.service';
           <td><span class="skeleton skeleton-lg"></span></td>
           <td><span class="skeleton skeleton-sm"></span></td>
           <td><span class="skeleton skeleton-sm"></span></td>
+          <td *ngIf="esAdmin"><span class="skeleton skeleton-btn"></span></td>
         </tr>
       </tbody>
       </table>
@@ -60,12 +64,38 @@ import { CatalogService, TipoTramite } from './catalog.service';
       <div class="tabla-scroll" *ngIf="tipos.length; else vacio">
         <table>
         <thead>
-          <tr><th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th></tr>
+          <tr>
+            <th>ID</th><th>Nombre</th><th>Requisitos</th><th>Cupo diario</th><th>Activo</th>
+            <th *ngIf="esAdmin"></th>
+          </tr>
         </thead>
         <tbody>
           <tr *ngFor="let t of tipos; trackBy: trackById" [class.optimista]="esOptimista(t)">
-            <td>{{ esOptimista(t) ? '…' : t.id }}</td><td>{{ t.nombre }}</td><td>{{ t.requisitos }}</td>
-            <td>{{ t.cupoDiario }}</td><td>{{ t.activo ? 'Sí' : 'No' }}</td>
+            <td>{{ esOptimista(t) ? '…' : t.id }}</td>
+            <td>{{ t.nombre }}</td>
+
+            <ng-container *ngIf="editandoId !== t.id; else filaEditable">
+              <td>{{ t.requisitos }}</td>
+              <td>{{ t.cupoDiario }}</td>
+              <td>{{ t.activo ? 'Sí' : 'No' }}</td>
+              <td *ngIf="esAdmin">
+                <button class="btn btn-outline btn-sm" *ngIf="!esOptimista(t)" (click)="editar(t)">Editar</button>
+              </td>
+            </ng-container>
+
+            <ng-template #filaEditable>
+              <td><input class="inline-input" [(ngModel)]="edicion.requisitos" name="req{{ t.id }}" placeholder="Requisitos" /></td>
+              <td><input class="inline-input inline-num" [(ngModel)]="edicion.cupoDiario" name="cupo{{ t.id }}" type="number" min="0" /></td>
+              <td><input type="checkbox" [(ngModel)]="edicion.activo" name="act{{ t.id }}" /></td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn btn-primary btn-sm" [disabled]="guardando" (click)="guardar(t)">
+                    {{ guardando ? 'Guardando…' : 'Guardar' }}
+                  </button>
+                  <button class="btn btn-ghost btn-sm btn-cancelar" [disabled]="guardando" (click)="cancelar()">Cancelar</button>
+                </div>
+              </td>
+            </ng-template>
           </tr>
         </tbody>
         </table>
@@ -82,6 +112,10 @@ export class CatalogComponent implements OnInit {
   error = '';
   esAdmin = false;
   enviando = false;
+  /** id del tipo en edicion en linea, o null si no se esta editando ninguno. */
+  editandoId: number | null = null;
+  guardando = false;
+  edicion: ActualizarTipoTramite = { requisitos: null, cupoDiario: 0, activo: true };
   readonly filasSkeleton = [1, 2, 3];
   nuevo = { nombre: '', requisitos: '', cupoDiario: 5 };
 
@@ -113,6 +147,34 @@ export class CatalogComponent implements OnInit {
 
   trackById(_i: number, t: TipoTramite): number {
     return t.id;
+  }
+
+  editar(t: TipoTramite): void {
+    this.editandoId = t.id;
+    // Copia: se edita un borrador y la fila solo cambia cuando el backend confirma.
+    this.edicion = { requisitos: t.requisitos, cupoDiario: t.cupoDiario, activo: t.activo };
+  }
+
+  cancelar(): void {
+    this.editandoId = null;
+  }
+
+  guardar(t: TipoTramite): void {
+    if (this.guardando) return;
+    this.guardando = true;
+    this.error = '';
+    this.service.actualizar(t.id, this.edicion)
+      .pipe(finalize(() => (this.guardando = false)))
+      .subscribe({
+        next: (real) => {
+          this.tipos = this.tipos.map((x) => (x.id === real.id ? real : x));
+          this.editandoId = null;
+        },
+        error: (e) => {
+          this.error = e.error?.detail ?? `No se pudo guardar (${e.status})`;
+          this.cargar();
+        },
+      });
   }
 
   esOptimista(t: TipoTramite): boolean {

@@ -337,3 +337,19 @@ tr.optimista { opacity: 0.6; }
   background: rgba(31,92,83,0.12); color: var(--teal-deep); }
 .badge.RESUELTO { background: rgba(31,92,83,0.18); }
 .badge.RECHAZADO { background: rgba(193,85,58,0.16); color: var(--terracotta-deep); }
+
+/* Edicion en linea del catalogo */
+.inline-input {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1.5px solid var(--line);
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--ink);
+  background: var(--paper);
+}
+.inline-input:focus { outline: none; border-color: var(--teal); }
+.inline-num { max-width: 90px; }
+button.btn-ghost.btn-cancelar { background: rgba(23,40,42,0.07); color: var(--ink-soft); }
+button.btn-ghost.btn-cancelar:hover { background: rgba(23,40,42,0.13); }
