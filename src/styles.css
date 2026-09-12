@@ -259,6 +259,8 @@ form.card select option:checked, form.card select option:hover {
   background: var(--teal); color: #fff;
 }
 .muted { color: var(--ink-soft); }
+.cupo-hint { margin: 8px 0 0; font-size: 0.85rem; }
+tr.optimista { opacity: 0.6; }
 .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 600;
   background: rgba(31,92,83,0.12); color: var(--teal-deep); }
 .badge.RESUELTO { background: rgba(31,92,83,0.18); }

@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
-import { EstadoTramite, RequestsService, Tramite } from './requests.service';
+import { CupoInfo, EstadoTramite, RequestsService, Tramite } from './requests.service';
 
 /** Siguiente estado sugerido en la UI; el backend vuelve a validar la transicion. */
 const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
@@ -24,10 +24,16 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
       <p class="card-title">Nuevo trámite</p>
 
       <label for="tipo">Tipo de trámite</label>
-      <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" required>
+      <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" (ngModelChange)="onTipoChange($event)" required>
         <option [ngValue]="null" disabled>Selecciona un tipo</option>
         <option *ngFor="let t of tipos" [ngValue]="t.id">{{ t.nombre }}</option>
       </select>
+      <p class="muted cupo-hint" *ngIf="cupoInfo">
+        <ng-container *ngIf="cupoInfo.disponible > 0; else agotado">
+          Quedan <b>{{ cupoInfo.disponible }}</b> de {{ cupoInfo.cupoDiario }} cupos hoy para este trámite.
+        </ng-container>
+        <ng-template #agotado>Cupo diario agotado ({{ cupoInfo.cupoDiario }}/día) — igual puedes ingresarlo, quedará en espera.</ng-template>
+      </p>
 
       <label for="descripcion">Descripción</label>
       <textarea id="descripcion" [(ngModel)]="nuevo.descripcion" name="descripcion" placeholder="Cuéntanos qué necesitas" required></textarea>
@@ -47,14 +53,14 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
         <tr><th>ID</th><th>Vecino</th><th>Descripción</th><th>Estado</th><th>Funcionario</th><th *ngIf="esFuncionarioOAdmin"></th></tr>
       </thead>
       <tbody>
-        <tr *ngFor="let t of tramites">
-          <td>{{ t.id }}</td><td>{{ t.vecinoUsername }}</td><td>{{ t.descripcion }}</td>
+        <tr *ngFor="let t of tramites" [class.optimista]="esOptimista(t)">
+          <td>{{ esOptimista(t) ? '…' : t.id }}</td><td>{{ t.vecinoUsername }}</td><td>{{ t.descripcion }}</td>
           <td><span class="badge" [ngClass]="t.estado">{{ t.estado }}</span></td>
           <td>{{ t.funcionarioAsignado }}</td>
           <td *ngIf="esFuncionarioOAdmin">
-            <div class="row-actions">
-              <button class="btn btn-outline btn-sm" *ngIf="siguienteEstado(t.estado) as sig" (click)="avanzar(t, sig)">→ {{ sig }}</button>
-              <button class="btn btn-danger btn-sm" *ngIf="puedeRechazar(t.estado)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
+            <div class="row-actions" *ngIf="!esOptimista(t)">
+              <button class="btn btn-outline btn-sm" *ngIf="siguienteEstado(t.estado) as sig" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, sig)">→ {{ sig }}</button>
+              <button class="btn btn-danger btn-sm" *ngIf="puedeRechazar(t.estado)" [disabled]="actualizando.has(t.id)" (click)="avanzar(t, 'RECHAZADO')">Rechazar</button>
             </div>
           </td>
         </tr>
@@ -66,10 +72,14 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
 export class RequestsComponent implements OnInit {
   tramites: Tramite[] = [];
   tipos: TipoTramite[] = [];
+  cupoInfo: CupoInfo | null = null;
   error = '';
   esVecinoOFuncionario = false;
   esFuncionarioOAdmin = false;
   enviando = false;
+  username = '';
+  /** ids de tramites con un cambio de estado optimista en curso (deshabilita sus botones). */
+  actualizando = new Set<number>();
   nuevo: { tipoId: number | null; descripcion: string; direccion: string } = {
     tipoId: null,
     descripcion: '',
@@ -85,6 +95,7 @@ export class RequestsComponent implements OnInit {
   ngOnInit(): void {
     // Se resuscribe con cada cambio de cuenta desde la topbar, no solo al entrar a la pantalla.
     this.session.estado$.subscribe((s) => {
+      this.username = s.username;
       this.esVecinoOFuncionario = s.roles.includes('Vecino') || s.roles.includes('Funcionario');
       this.esFuncionarioOAdmin = s.roles.includes('Funcionario') || s.roles.includes('Admin');
       if (this.esVecinoOFuncionario) {
@@ -101,23 +112,55 @@ export class RequestsComponent implements OnInit {
     });
   }
 
+  onTipoChange(tipoId: number | null): void {
+    this.cupoInfo = null;
+    if (tipoId == null) return;
+    this.service.cupoDe(tipoId).subscribe({ next: (c) => (this.cupoInfo = c) });
+  }
+
+  /** Un tramite optimista es el placeholder local que se muestra antes de que el backend confirme la creacion. */
+  esOptimista(t: Tramite): boolean {
+    return t.id < 0;
+  }
+
   crear(): void {
     // Guarda contra doble envio: Enter dispara ngSubmit, y si despues tambien
     // se hace clic en el boton (o se aprieta Enter dos veces) se duplicaba el tramite.
     if (this.enviando || this.nuevo.tipoId == null) return;
     this.enviando = true;
-    this.service.crear({ tipoId: this.nuevo.tipoId, descripcion: this.nuevo.descripcion, direccion: this.nuevo.direccion })
-      .subscribe({
-        next: () => {
-          this.enviando = false;
-          this.nuevo = { tipoId: null, descripcion: '', direccion: '' };
-          this.cargar();
-        },
-        error: (e) => {
-          this.enviando = false;
-          this.error = e.error?.detail ?? `No se pudo crear (${e.status})`;
-        },
-      });
+    this.error = '';
+
+    const cuerpo = { tipoId: this.nuevo.tipoId, descripcion: this.nuevo.descripcion, direccion: this.nuevo.direccion };
+    this.nuevo = { tipoId: null, descripcion: '', direccion: '' };
+    this.cupoInfo = null;
+
+    // Optimistic update: se muestra de inmediato, sin esperar la respuesta del backend.
+    const tempId = -Date.now();
+    const optimista: Tramite = {
+      id: tempId,
+      tipoId: cuerpo.tipoId,
+      vecinoUsername: this.username,
+      descripcion: cuerpo.descripcion,
+      direccion: cuerpo.direccion || null,
+      estado: 'INGRESADO',
+      funcionarioAsignado: null,
+      fechaIngreso: new Date().toISOString(),
+      fechaAdmision: null,
+      fechaResolucion: null,
+    };
+    this.tramites = [optimista, ...this.tramites];
+
+    this.service.crear(cuerpo).subscribe({
+      next: (real) => {
+        this.enviando = false;
+        this.tramites = this.tramites.map((t) => (t.id === tempId ? real : t));
+      },
+      error: (e) => {
+        this.enviando = false;
+        this.tramites = this.tramites.filter((t) => t.id !== tempId);
+        this.error = e.error?.detail ?? `No se pudo crear (${e.status})`;
+      },
+    });
   }
 
   siguienteEstado(estado: EstadoTramite): EstadoTramite | null {
@@ -129,9 +172,21 @@ export class RequestsComponent implements OnInit {
   }
 
   avanzar(t: Tramite, nuevo: EstadoTramite): void {
+    if (this.actualizando.has(t.id)) return;
+    this.actualizando.add(t.id);
+    const anterior = t.estado;
+    t.estado = nuevo; // optimistic: el boton "siguiente estado" cambia de inmediato, sin esperar al backend
+
     this.service.cambiarEstado(t.id, nuevo).subscribe({
-      next: () => this.cargar(),
-      error: (e) => (this.error = e.error?.detail ?? `No se pudo cambiar el estado (${e.status})`),
+      next: (real) => {
+        this.actualizando.delete(t.id);
+        Object.assign(t, real);
+      },
+      error: (e) => {
+        this.actualizando.delete(t.id);
+        t.estado = anterior; // revierte el optimistic update si el backend lo rechaza (ej. cupo agotado)
+        this.error = e.error?.detail ?? `No se pudo cambiar el estado (${e.status})`;
+      },
     });
   }
 }

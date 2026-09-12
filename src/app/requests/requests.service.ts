@@ -24,6 +24,12 @@ export interface CrearTramite {
   direccion?: string;
 }
 
+export interface CupoInfo {
+  cupoDiario: number;
+  admitidosHoy: number;
+  disponible: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class RequestsService {
   private readonly base = `${environment.apiBaseUrl}/api/requests`;
@@ -42,5 +48,9 @@ export class RequestsService {
 
   cambiarEstado(id: number, status: EstadoTramite): Observable<Tramite> {
     return this.http.put<Tramite>(`${this.base}/${id}/status`, { status });
+  }
+
+  cupoDe(tipoId: number): Observable<CupoInfo> {
+    return this.http.get<CupoInfo>(`${this.base}/tipos/${tipoId}/cupo`);
   }
 }
