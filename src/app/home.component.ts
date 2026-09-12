@@ -1,6 +1,7 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Sesion, SessionService } from './auth/session.service';
 
 @Component({
@@ -65,9 +66,11 @@ import { Sesion, SessionService } from './auth/session.service';
 export class HomeComponent implements OnInit {
   s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
+  private readonly destroyRef = inject(DestroyRef);
+
   constructor(public session: SessionService) {}
 
   ngOnInit(): void {
-    this.session.estado$.subscribe((s) => (this.s = s));
+    this.session.estado$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => (this.s = s));
   }
 }

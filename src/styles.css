@@ -261,6 +261,42 @@ form.card select option:checked, form.card select option:hover {
 .muted { color: var(--ink-soft); }
 .cupo-hint { margin: 8px 0 0; font-size: 0.85rem; }
 tr.optimista { opacity: 0.6; }
+
+/* ---------- skeleton loading ---------- */
+/* Mismas filas/columnas que la tabla real: al llegar los datos no salta el layout. */
+/* table-layout fixed: las celdas del skeleton van vacias, y con el layout
+   automatico las columnas colapsaban y las barras quedaban como hilos. */
+.skeleton-table { table-layout: fixed; }
+.skeleton-table tbody td { height: 44px; }
+.skeleton {
+  display: block;
+  height: 12px;
+  /* Ancho en px, no en %: un % se calcula sobre la celda, que aqui no tiene contenido. */
+  width: 120px;
+  max-width: 100%;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(23, 40, 42, 0.07) 25%,
+    rgba(23, 40, 42, 0.13) 37%,
+    rgba(23, 40, 42, 0.07) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-sm { width: 34px; }
+.skeleton-lg { width: 180px; }
+.skeleton-badge { width: 88px; height: 20px; border-radius: 999px; }
+.skeleton-btn { width: 104px; height: 28px; border-radius: 8px; }
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
 .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 600;
   background: rgba(31,92,83,0.12); color: var(--teal-deep); }
 .badge.RESUELTO { background: rgba(31,92,83,0.18); }
