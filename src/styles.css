@@ -413,3 +413,5 @@ button.btn-accion { min-width: 132px; text-align: center; }
   color: var(--ink);
 }
 .col-tipo { min-width: 150px; }
+.welcome-card .claims { font-size: 0.78rem; color: var(--ink-soft); margin-top: 10px; }
+.welcome-card .claims code { background: rgba(31,92,83,0.09); padding: 2px 6px; border-radius: 5px; }

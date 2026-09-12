@@ -37,6 +37,9 @@ import { Sesion, SessionService } from './auth/session.service';
             Accediste como <b>{{ s.roles.join(', ') }}</b>. Usa el menú de arriba para
             entrar a Trámites o Catálogo.
           </p>
+          <p class="claims" *ngIf="s.scopes.length">
+            Permisos delegados del token: <code>{{ s.scopes.join(' ') }}</code>
+          </p>
         </ng-template>
       </div>
 
@@ -64,7 +67,7 @@ import { Sesion, SessionService } from './auth/session.service';
   `,
 })
 export class HomeComponent implements OnInit {
-  s: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
+  s: Sesion = { loggedIn: false, username: '', roles: [], scopes: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
   private readonly destroyRef = inject(DestroyRef);
 

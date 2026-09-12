@@ -9,6 +9,8 @@ export function usernameDe(msal: MsalService): string {
 
 export interface TokenInfo {
   roles: string[];
+  /** Scopes delegados (claim `scp`), p. ej. "access_as_user". */
+  scopes: string[];
   /** Expiracion del access token (claim `exp`, epoch en segundos), o null si no se pudo leer. */
   exp: number | null;
 }
@@ -26,23 +28,26 @@ export interface TokenInfo {
  */
 export async function tokenInfoDe(msal: MsalService, forceRefresh = false): Promise<TokenInfo> {
   const account = msal.instance.getActiveAccount();
-  if (!account) return { roles: [], exp: null };
+  if (!account) return { roles: [], scopes: [], exp: null };
   try {
     const result = await msal.instance.acquireTokenSilent({ scopes: [environment.apiScope], account, forceRefresh });
     return claimsDelAccessToken(result.accessToken);
   } catch (e) {
     console.error('No se pudo leer el access token', e);
-    return { roles: [], exp: null };
+    return { roles: [], scopes: [], exp: null };
   }
 }
 
 function claimsDelAccessToken(accessToken: string): TokenInfo {
   const payload = accessToken.split('.')[1];
-  if (!payload) return { roles: [], exp: null };
+  if (!payload) return { roles: [], scopes: [], exp: null };
   const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
   const claims = JSON.parse(json) as Record<string, unknown>;
+  // scp llega como string separado por espacios; roles llega como arreglo.
+  const scp = typeof claims['scp'] === 'string' ? (claims['scp'] as string) : '';
   return {
     roles: Array.isArray(claims['roles']) ? (claims['roles'] as string[]) : [],
+    scopes: scp ? scp.split(' ').filter(Boolean) : [],
     exp: typeof claims['exp'] === 'number' ? (claims['exp'] as number) : null,
   };
 }

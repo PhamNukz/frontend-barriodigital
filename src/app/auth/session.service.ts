@@ -9,6 +9,8 @@ export interface Sesion {
   loggedIn: boolean;
   username: string;
   roles: string[];
+  /** Scopes del access token (claim `scp`). */
+  scopes: string[];
   accounts: ReturnType<typeof cuentasDisponibles>;
   activeAccountId: string;
   /** Expiracion del access token (epoch en segundos), o null si no hay sesion. */
@@ -17,7 +19,7 @@ export interface Sesion {
   cargando: boolean;
 }
 
-const SESION_INICIAL: Sesion = { loggedIn: false, username: '', roles: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
+const SESION_INICIAL: Sesion = { loggedIn: false, username: '', roles: [], scopes: [], accounts: [], activeAccountId: '', exp: null, cargando: true };
 
 /**
  * Unica fuente de verdad de la sesion. Antes cada pantalla (topbar, home,
@@ -45,11 +47,12 @@ export class SessionService {
     this.sesion$.next({ ...this.sesion$.value, cargando: true });
     const account = this.msal.instance.getActiveAccount() ?? this.msal.instance.getAllAccounts()[0];
     if (account) this.msal.instance.setActiveAccount(account);
-    const info = account ? await tokenInfoDe(this.msal, forceRefresh) : { roles: [], exp: null };
+    const info = account ? await tokenInfoDe(this.msal, forceRefresh) : { roles: [], scopes: [], exp: null };
     this.sesion$.next({
       loggedIn: !!account,
       username: usernameDe(this.msal),
       roles: info.roles,
+      scopes: info.scopes,
       accounts: cuentasDisponibles(this.msal),
       activeAccountId: account?.homeAccountId ?? '',
       exp: info.exp,
