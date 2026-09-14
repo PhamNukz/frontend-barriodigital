@@ -2,7 +2,8 @@ import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs/operators';
+import { EMPTY, interval } from 'rxjs';
+import { catchError, finalize, switchMap } from 'rxjs/operators';
 import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { CupoInfo, EstadoTramite, RequestsService, Tramite } from './requests.service';
@@ -217,6 +218,15 @@ export class RequestsComponent implements OnInit {
       this.cargarCupos();
     });
     this.cargar();
+    // Refresco silencioso (sin spinner ni error) para que el funcionario vea los
+    // tramites nuevos sin F5. ponytail: polling cada 10 s en vez de WebSocket/SSE --
+    // HTTP API Gateway no soporta WebSocket y corta SSE a los 30 s.
+    interval(10_000)
+      .pipe(
+        switchMap(() => this.service.listar().pipe(catchError(() => EMPTY))), // un fallo no mata el polling
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((data) => (this.tramites = data));
   }
 
   cargar(): void {
