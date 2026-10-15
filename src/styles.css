@@ -415,3 +415,31 @@ button.btn-accion { min-width: 132px; text-align: center; }
 .col-tipo { min-width: 150px; }
 .welcome-card .claims { font-size: 0.78rem; color: var(--ink-soft); margin-top: 10px; }
 .welcome-card .claims code { background: rgba(31,92,83,0.09); padding: 2px 6px; border-radius: 5px; }
+
+/* ---------- linea de tiempo de auditoria (/audit) ---------- */
+.timeline { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--line); }
+.timeline li { position: relative; padding: 0 0 22px 22px; }
+.timeline li:last-child { padding-bottom: 0; }
+/* El punto va sobre la linea del <ul>: -17px = 10px de padding + 2px de borde + mitad del punto. */
+.timeline li::before {
+  content: ""; position: absolute; left: -17px; top: 4px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--paper-raised); border: 2.5px solid var(--teal);
+}
+.timeline .cuando { margin: 0; font-size: 0.78rem; color: var(--ink-soft); letter-spacing: 0.02em; }
+.timeline .que {
+  margin: 4px 0 0; font-size: 0.92rem; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.timeline .flecha { color: var(--ink-soft); }
+.timeline .quien { margin: 4px 0 0; font-size: 0.82rem; color: var(--ink-soft); }
+.timeline .quien b { color: var(--ink); font-weight: 600; }
+/* Mismo borde y foco que .filtro-select, sin la flecha del desplegable. */
+.filtro-input {
+  padding: 7px 11px;
+  border: 1.5px solid var(--line); border-radius: 8px;
+  font-family: inherit; font-size: 0.88rem; color: var(--ink);
+  background-color: var(--paper-raised);
+}
+.filtro-input:hover { border-color: var(--teal); }
+.filtro-input:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,92,83,0.15); }
