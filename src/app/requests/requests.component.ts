@@ -17,7 +17,7 @@ const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
 };
 
 /** El backend usa el enum (EN_GESTION); la pantalla no tiene por que mostrar guiones bajos. */
-const ETIQUETA: Record<EstadoTramite, string> = {
+export const ETIQUETA: Record<EstadoTramite, string> = {
   INGRESADO: 'Ingresado',
   ADMITIDO: 'Admitido',
   EN_GESTION: 'En gestión',

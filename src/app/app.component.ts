@@ -12,9 +12,11 @@ import { Sesion, SessionService } from './auth/session.service';
     <header class="topbar">
       <a routerLink="" class="brand"><span class="dot">◆</span>BarrioDigital</a>
       <nav *ngIf="s.loggedIn">
+        <a routerLink="/dashboard" routerLinkActive="active">Inicio</a>
         <a routerLink="/requests" routerLinkActive="active">Trámites</a>
         <a routerLink="/catalog" routerLinkActive="active">Catálogo</a>
         <a routerLink="/reports" routerLinkActive="active" *ngIf="s.roles.includes('Admin')">Reportes</a>
+        <a *ngIf="s.roles.includes('Admin') || s.roles.includes('Auditor')" routerLink="/audit" routerLinkActive="active">Auditoría</a>
       </nav>
       <span style="flex: 1"></span>
       <div class="session" *ngIf="s.loggedIn">
