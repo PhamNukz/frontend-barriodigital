@@ -14,6 +14,7 @@ import { Sesion, SessionService } from './auth/session.service';
       <nav *ngIf="s.loggedIn">
         <a routerLink="/requests" routerLinkActive="active">Trámites</a>
         <a routerLink="/catalog" routerLinkActive="active">Catálogo</a>
+        <a routerLink="/reports" routerLinkActive="active" *ngIf="s.roles.includes('Admin')">Reportes</a>
       </nav>
       <span style="flex: 1"></span>
       <div class="session" *ngIf="s.loggedIn">
