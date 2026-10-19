@@ -10,6 +10,9 @@ import { roleGuard } from './auth/role.guard';
 
 export const routes: Routes = [
   { path: '', component: HomeComponent },
+  // ponytail: /login es alias de la portada (Caso §6), no una redireccion. El redirectUri de
+  // MSAL apunta a '/', y redirigir desde ahi podria borrar el #code= del popup antes de leerlo.
+  { path: 'login', component: HomeComponent },
   { path: 'dashboard', component: DashboardComponent, canActivate: [MsalGuard] },
   { path: 'requests', component: RequestsComponent, canActivate: [MsalGuard] },
   { path: 'catalog', component: CatalogComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
