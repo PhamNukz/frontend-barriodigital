@@ -82,7 +82,12 @@ export class SessionService {
     agregarCuenta(this.msal, this.guardConfig, () => this.refrescar());
   }
 
+  /**
+   * Cierra solo la cuenta activa: si habia otra cuenta agregada, queda esa. Antes se
+   * cerraban todas a la vez y no habia forma de salir de una sin perder la otra.
+   */
   cerrarSesion(): void {
-    this.msal.logoutPopup({ mainWindowRedirectUri: '/' });
+    const account = this.msal.instance.getActiveAccount() ?? undefined;
+    this.msal.logoutPopup({ account, mainWindowRedirectUri: '/' });
   }
 }

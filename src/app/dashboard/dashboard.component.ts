@@ -21,7 +21,8 @@ const ACCESOS: Acceso[] = [
   { ruta: '/requests', titulo: 'Trámites', detalle: 'Ingresar y seguir solicitudes', ico: '📋', roles: ['Admin', 'Funcionario', 'Vecino'] },
   { ruta: '/catalog', titulo: 'Catálogo', detalle: 'Tipos de trámite y cupos', ico: '🗂️', roles: ['Admin', 'Funcionario'] },
   { ruta: '/reports', titulo: 'Reportes', detalle: 'KPIs de atención', ico: '📊', roles: ['Admin'] },
-  { ruta: '/audit', titulo: 'Auditoría', detalle: 'Historial de cambios', ico: '🔎', roles: ['Admin', 'Auditor'] },
+  { ruta: '/audit', titulo: 'Historial', detalle: 'Auditoría por persona y trámite', ico: '🔎', roles: ['Admin', 'Auditor', 'Funcionario'] },
+  { ruta: '/queues', titulo: 'Colas', detalle: 'RabbitMQ en vivo', ico: '📨', roles: ['Admin'] },
 ];
 
 @Component({
