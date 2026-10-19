@@ -6,6 +6,7 @@ import { CatalogComponent } from './catalog/catalog.component';
 import { DashboardComponent } from './dashboard/dashboard.component';
 import { ReportsComponent } from './reports/reports.component';
 import { AuditComponent } from './audit/audit.component';
+import { QueuesComponent } from './queues/queues.component';
 import { roleGuard } from './auth/role.guard';
 
 export const routes: Routes = [
@@ -17,6 +18,8 @@ export const routes: Routes = [
   { path: 'requests', component: RequestsComponent, canActivate: [MsalGuard] },
   { path: 'catalog', component: CatalogComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
   { path: 'reports', component: ReportsComponent, canActivate: [MsalGuard, roleGuard(['Admin'])] },
-  { path: 'audit', component: AuditComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Auditor'])] },
+  // Funcionario: revisa el historial del vecino que esta atendiendo.
+  { path: 'audit', component: AuditComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Auditor', 'Funcionario'])] },
+  { path: 'queues', component: QueuesComponent, canActivate: [MsalGuard, roleGuard(['Admin'])] },
   { path: '**', redirectTo: '' },
 ];

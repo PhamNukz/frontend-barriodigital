@@ -1,4 +1,6 @@
-import { ApplicationConfig, APP_INITIALIZER } from '@angular/core';
+import { ApplicationConfig, APP_INITIALIZER, LOCALE_ID } from '@angular/core';
+import { registerLocaleData } from '@angular/common';
+import localeEsCl from '@angular/common/locales/es-CL';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptorsFromDi, HTTP_INTERCEPTORS } from '@angular/common/http';
 import {
@@ -24,6 +26,9 @@ import { routes } from './app.routes';
 import { environment } from '../environments/environment';
 import { HttpResilienceInterceptor } from './http-resilience.interceptor';
 
+// Fechas en espanol de Chile ("15 oct 2026"), no en el ingles por defecto de Angular.
+registerLocaleData(localeEsCl);
+
 export function MSALInstanceFactory(): IPublicClientApplication {
   return new PublicClientApplication({
     auth: {
@@ -33,7 +38,10 @@ export function MSALInstanceFactory(): IPublicClientApplication {
       postLogoutRedirectUri: environment.postLogoutRedirectUri,
     },
     cache: {
-      cacheLocation: BrowserCacheLocation.LocalStorage,
+      // sessionStorage y no localStorage: cada pestana tiene su propia sesion y sus propios
+      // tokens. Con localStorage la cuenta activa se compartia entre pestanas, asi que entrar
+      // como Vecino en una y como Funcionario en otra mezclaba los tokens de ambos.
+      cacheLocation: BrowserCacheLocation.SessionStorage,
     },
     system: {
       loggerOptions: {
@@ -63,6 +71,7 @@ export function MSALInterceptorConfigFactory(): MsalInterceptorConfiguration {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideRouter(routes),
+    { provide: LOCALE_ID, useValue: 'es-CL' },
     provideHttpClient(withInterceptorsFromDi()),
 
     { provide: HTTP_INTERCEPTORS, useClass: MsalInterceptor, multi: true },
