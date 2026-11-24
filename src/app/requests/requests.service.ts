@@ -180,8 +180,16 @@ export class RequestsService {
   }
 
   /** Solo el vecino dueno; CAMBIAR exige horarioPedido. 409 si ya respondio. */
-  responderVisita(id: number, respuesta: RespuestaVisita, horarioPedido?: string): Observable<Tramite> {
-    return this.http.post<Tramite>(`${this.base}/${id}/visita/respuesta`, { respuesta, horarioPedido: horarioPedido?.trim() || null });
+  /**
+   * codigo: el visita.codigo que el vecino tenia en pantalla. Si el funcionario reprogramo
+   * mientras tanto, el backend no lo reconoce y responde 409 (no se confirma una fecha vieja).
+   */
+  responderVisita(id: number, respuesta: RespuestaVisita, horarioPedido?: string, codigo?: string | null): Observable<Tramite> {
+    return this.http.post<Tramite>(`${this.base}/${id}/visita/respuesta`, {
+      respuesta,
+      horarioPedido: horarioPedido?.trim() || null,
+      codigo: codigo ?? null,
+    });
   }
 
   /** Idempotente: repetirlo no reenvia el correo. */

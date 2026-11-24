@@ -557,7 +557,7 @@ export class SeguimientoVecinoComponent implements OnChanges, OnInit {
     this.enviando = true;
     this.errorResp = '';
     this.okResp = '';
-    this.service.responderVisita(t.id, respuesta, respuesta === 'CAMBIAR' ? this.horarioPedido : undefined)
+    this.service.responderVisita(t.id, respuesta, respuesta === 'CAMBIAR' ? this.horarioPedido : undefined, t.visita?.codigo)
       .pipe(finalize(() => (this.enviando = false)))
       .subscribe({
         next: (real) => {
@@ -568,8 +568,11 @@ export class SeguimientoVecinoComponent implements OnChanges, OnInit {
             : 'Listo, le avisamos al funcionario. Le responderá por correo.';
           this.aplicar(real);
         },
-        // 409: ya respondio (otra pestaña o el correo) o el funcionario reprogramo; el polling trae lo real.
-        error: (e) => (this.errorResp = e.error?.detail ?? `No se pudo enviar su respuesta (${e.status}). Intente de nuevo.`),
+        // 409: ya respondio (otra pestaña o el correo) o el funcionario reprogramo (el codigo ya no coincide).
+        // En simple para el vecino; el polling trae la visita real en unos segundos.
+        error: (e) => (this.errorResp = e.status === 409
+          ? 'La visita cambió mientras usted miraba. En unos segundos verá aquí la información nueva.'
+          : e.error?.detail ?? `No se pudo enviar su respuesta (${e.status}). Intente de nuevo.`),
       });
   }
 
