@@ -32,7 +32,43 @@ export interface Tramite {
    * null = las tiene, pero este tramite aun no tiene visita propuesta.
    */
   visita?: Visita | null;
+  /** Familiares que reciben copia de los correos. undefined = backend sin contactos (la UI se esconde). */
+  contactos?: Contacto[];
+  /** Borrado logico (Admin B). undefined = backend sin visibilidad: la UI de Admin se esconde. */
+  visibleVecino?: boolean;
+  motivoVisibilidad?: string | null;
+  /** No null = en la papelera. */
+  eliminadoEn?: string | null;
+  eliminadoPor?: string | null;
 }
+
+/** Reglas de visibilidad y retencion que define el Admin (GET/PUT /requests/reglas). */
+export interface Reglas {
+  mostrarNombreFuncionario: boolean;
+  mostrarRechazados: boolean;
+  mesesHistorial: 6 | 12 | 24;
+  diasPapelera: 30 | 90 | 180;
+  alVencer: 'ANONIMIZAR' | 'BORRAR';
+  auditorRestaura: boolean;
+}
+
+/** Cerrados hace mas de `meses` meses: pasan a la seccion "Historial" del vecino. */
+export function archivado(t: Tramite, meses: number): boolean {
+  if (t.estado !== 'RESUELTO' && t.estado !== 'RECHAZADO') return false;
+  const cierre = new Date(t.fechaResolucion ?? t.fechaIngreso);
+  const limite = new Date();
+  limite.setMonth(limite.getMonth() - meses);
+  return cierre < limite;
+}
+
+export interface Contacto {
+  id: number;
+  nombre: string;
+  correo: string;
+}
+
+/** Maximo de contactos por tramite (el backend responde 409 al cuarto). */
+export const MAX_CONTACTOS = 3;
 
 export type Franja = 'MANANA' | 'TARDE';
 export type EstadoVisita = 'PROPUESTA' | 'CONFIRMADA' | 'CAMBIO_PEDIDO' | 'LLAMAR';
@@ -48,6 +84,11 @@ export interface Visita {
   /** Lo que pidio el vecino con CAMBIAR (texto corto). */
   horarioPedido: string | null;
   actualizadoEn: string;
+  /**
+   * Codigo de 4 digitos que el vecino le pide a la cuadrilla antes de abrir. undefined = backend
+   * sin codigos ni "confirmar por telefono" (llegan juntos); null = visita anterior al codigo.
+   */
+  codigo?: string | null;
 }
 
 export const HORARIO_FRANJA: Record<Franja, string> = { MANANA: '9:00 a 12:00', TARDE: '14:00 a 17:00' };
@@ -146,5 +187,49 @@ export class RequestsService {
   /** Idempotente: repetirlo no reenvia el correo. */
   avisarEnCamino(id: number): Observable<Tramite> {
     return this.http.put<Tramite>(`${this.base}/${id}/en-camino`, {});
+  }
+
+  /** Funcionario/Admin: el vecino confirmo por telefono. Idempotente. */
+  confirmarVisita(id: number, nota?: string): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/visita/confirmar`, { nota: nota?.trim() || null });
+  }
+
+  /** Solo el vecino dueno; maximo MAX_CONTACTOS y sin correos repetidos (409). */
+  agregarContacto(id: number, nombre: string, correo: string): Observable<Tramite> {
+    return this.http.post<Tramite>(`${this.base}/${id}/contactos`, { nombre: nombre.trim(), correo: correo.trim() });
+  }
+
+  quitarContacto(id: number, contactoId: number): Observable<Tramite> {
+    return this.http.delete<Tramite>(`${this.base}/${id}/contactos/${contactoId}`);
+  }
+
+  // ---------- Admin B: borrado logico y reglas ----------
+
+  /** Solo Admin/Auditor: los tramites en la papelera. */
+  papelera(): Observable<Tramite[]> {
+    return this.http.get<Tramite[]>(this.base, { params: new HttpParams().set('papelera', 'true') });
+  }
+
+  /** Admin: ocultar o volver a mostrar al vecino; el motivo queda en la auditoria. */
+  cambiarVisibilidad(id: number, visibleVecino: boolean, motivo: string): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/visibilidad`, { visibleVecino, motivo: motivo.trim() });
+  }
+
+  /** Admin: a la papelera (borrado logico; no devuelve el cupo). */
+  enviarAPapelera(id: number, motivo: string): Observable<Tramite> {
+    return this.http.delete<Tramite>(`${this.base}/${id}`, { params: new HttpParams().set('motivo', motivo.trim()) });
+  }
+
+  /** Admin (o Auditor si la regla lo permite): vuelve con la visibilidad que tenia. */
+  restaurar(id: number, motivo: string): Observable<Tramite> {
+    return this.http.post<Tramite>(`${this.base}/${id}/restaurar`, { motivo: motivo.trim() });
+  }
+
+  reglas(): Observable<Reglas> {
+    return this.http.get<Reglas>(`${this.base}/reglas`);
+  }
+
+  guardarReglas(r: Reglas): Observable<Reglas> {
+    return this.http.put<Reglas>(`${this.base}/reglas`, r);
   }
 }

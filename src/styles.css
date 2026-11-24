@@ -765,3 +765,12 @@ form.card select:hover { border-color: var(--teal); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Comprobante del vecino: mientras body tiene .imprimiendo, se imprime solo la tarjeta
+   (los estilos del componente no alcanzan a la barra superior ni a la cabecera). */
+@media print {
+  body.imprimiendo * { visibility: hidden; }
+  body.imprimiendo .sv-recibo, body.imprimiendo .sv-recibo * { visibility: visible; }
+  body.imprimiendo .sv-recibo { position: absolute; left: 0; top: 0; width: 100%; border: 0; }
+  body.imprimiendo .topbar::after { display: none; }
+}
