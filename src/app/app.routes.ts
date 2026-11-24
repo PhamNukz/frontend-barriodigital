@@ -8,6 +8,7 @@ import { ReportsComponent } from './reports/reports.component';
 import { AuditComponent } from './audit/audit.component';
 import { QueuesComponent } from './queues/queues.component';
 import { TableroComponent } from './tablero/tablero.component';
+import { ReglasComponent } from './admin/reglas.component';
 import { roleGuard } from './auth/role.guard';
 
 export const routes: Routes = [
@@ -18,6 +19,8 @@ export const routes: Routes = [
   { path: 'dashboard', component: DashboardComponent, canActivate: [MsalGuard] },
   { path: 'requests', component: RequestsComponent, canActivate: [MsalGuard] },
   { path: 'tablero', component: TableroComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
+  // Admin B: reglas y papelera. El Auditor entra en solo lectura (restaura solo si la regla lo permite).
+  { path: 'reglas', component: ReglasComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Auditor'])] },
   { path: 'catalog', component: CatalogComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
   { path: 'reports', component: ReportsComponent, canActivate: [MsalGuard, roleGuard(['Admin'])] },
   // Funcionario: revisa el historial del vecino que esta atendiendo.

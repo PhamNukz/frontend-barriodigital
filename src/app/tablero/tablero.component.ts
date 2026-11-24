@@ -349,6 +349,30 @@ interface Fila {
         </div>
         <ng-template #cerrado><p class="tb-accion tb-cerrado-msg">Trámite {{ t.estado === 'RESUELTO' ? 'resuelto' : 'rechazado' }}: ya no tiene acciones.</p></ng-template>
 
+        <!-- ADMIN B: borrado logico desde la ficha (solo Admin, solo con el backend que trae visibleVecino) -->
+        <div class="tb-bloque" *ngIf="esAdmin && t.visibleVecino !== undefined">
+          <h3 class="tb-d-h">Administración</h3>
+          <p class="tb-visita tb-visita-g" [ngClass]="t.visibleVecino ? 'tb-v-CONFIRMADA' : 'tb-v-PROPUESTA'">
+            {{ t.visibleVecino ? 'El vecino lo ve' : 'Oculto al vecino' }}<ng-container *ngIf="!t.visibleVecino && t.motivoVisibilidad">: {{ t.motivoVisibilidad }}</ng-container>
+          </p>
+          <label class="tb-lbl" for="tb-motivo-adm">Motivo (obligatorio, queda en la auditoría)</label>
+          <input id="tb-motivo-adm" class="tb-inp" maxlength="200" [(ngModel)]="motivoAdmin" name="motivoAdmin" placeholder="Ej.: duplicado del N° 1050" />
+          <div class="row-actions">
+            <button type="button" class="btn btn-outline btn-sm" [disabled]="actualizando.has(t.id) || motivoAdmin.trim().length < 3"
+                    (click)="cambiarVisibilidad(t)">{{ t.visibleVecino ? 'Ocultar al vecino' : 'Mostrar al vecino' }}</button>
+            <button type="button" *ngIf="!confirmandoPapelera" class="btn btn-danger btn-sm" [disabled]="actualizando.has(t.id) || motivoAdmin.trim().length < 3"
+                    (click)="confirmandoPapelera = true">Enviar a la papelera…</button>
+            <ng-container *ngIf="confirmandoPapelera">
+              <button type="button" class="btn btn-danger btn-sm" [disabled]="actualizando.has(t.id)" (click)="enviarAPapelera(t)">Sí, a la papelera</button>
+              <button type="button" class="btn btn-ghost btn-sm btn-cancelar" (click)="confirmandoPapelera = false">Cancelar</button>
+            </ng-container>
+          </div>
+          <p class="hint">
+            {{ t.visibleVecino ? 'Ocultar: el vecino deja de verlo y de recibir sus correos; el equipo lo sigue gestionando.' : 'Mostrar: el vecino lo vuelve a ver con todo su recorrido.' }}
+            La papelera lo saca de todas las listas (no devuelve el cupo); se restaura en «Reglas y papelera».
+          </p>
+        </div>
+
         <!-- Responsable -->
         <div class="tb-bloque" *ngIf="t.responsable !== undefined && abiertoParaCambios(t)">
           <h3 class="tb-d-h">Responsable</h3>
@@ -523,6 +547,9 @@ export class TableroComponent implements OnInit {
   error = '';
   aviso = '';
   username = '';
+  esAdmin = false;
+  motivoAdmin = '';
+  confirmandoPapelera = false;
   soloMios = false;
   verRechazados = false;
   /** ids con una accion en curso (deshabilita sus botones). */
@@ -555,7 +582,9 @@ export class TableroComponent implements OnInit {
 
   ngOnInit(): void {
     this.session.estado$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => {
-      if (!s.cargando) this.username = s.username;
+      if (s.cargando) return;
+      this.username = s.username;
+      this.esAdmin = s.roles.includes('Admin');
     });
     this.catalog.listar().subscribe({ next: (t) => (this.tipos = t) });
     this.cargarCupos();
@@ -599,6 +628,7 @@ export class TableroComponent implements OnInit {
     if (cambio) {
       // Otro funcionario lo movio (o el vecino respondio) mientras estaba abierto.
       this.confirmandoRechazo = false;
+      this.confirmandoPapelera = false;
       this.cargarPasos(actual);
     }
   }
@@ -839,6 +869,39 @@ export class TableroComponent implements OnInit {
     });
   }
 
+  /** Admin B: ocultar o volver a mostrar al vecino. */
+  cambiarVisibilidad(t: Tramite): void {
+    const motivo = this.motivoAdmin.trim();
+    if (motivo.length < 3 || this.actualizando.has(t.id)) return;
+    const visible = !t.visibleVecino;
+    this.accion(t, this.service.cambiarVisibilidad(t.id, visible, motivo), (real) => {
+      this.motivoAdmin = '';
+      return `N° ${real.id} ${visible ? 'vuelve a ser visible para' : 'quedó oculto al'} vecino. Quedó en la auditoría con el motivo.`;
+    });
+  }
+
+  /** Admin B: a la papelera. Sale de la lista al instante (el listado ya no lo trae). */
+  enviarAPapelera(t: Tramite): void {
+    const motivo = this.motivoAdmin.trim();
+    if (motivo.length < 3 || this.actualizando.has(t.id)) return;
+    this.actualizando.add(t.id);
+    this.error = '';
+    this.aviso = '';
+    this.service.enviarAPapelera(t.id, motivo)
+      .pipe(finalize(() => this.actualizando.delete(t.id)))
+      .subscribe({
+        next: () => {
+          this.tramites = this.tramites.filter((x) => x.id !== t.id);
+          if (this.abierto?.id === t.id) this.cerrar();
+          this.aviso = `N° ${t.id} está en la papelera. Se puede restaurar en «Reglas y papelera».`;
+        },
+        error: (e) => {
+          this.error = e.error?.detail ?? `No se pudo enviar a la papelera (${e.status}).`;
+          this.cargar(false);
+        },
+      });
+  }
+
   avisarEnCamino(t: Tramite): void {
     if (this.actualizando.has(t.id)) return;
     this.accion(t, this.service.avisarEnCamino(t.id), (real) => `Aviso enviado a ${this.usuario(real.vecinoUsername)}: la cuadrilla va en camino.`);
@@ -1001,6 +1064,8 @@ export class TableroComponent implements OnInit {
       this.confirmandoRechazo = false;
       this.formVisita = this.formVacio(t.visita);
       this.responsableNuevo = '';
+      this.motivoAdmin = '';
+      this.confirmandoPapelera = false;
       // Elegir bloque es para un tramite a la vez: abrir otro cancela la eleccion.
       if (this.eligiendo && this.eligiendo.id !== t.id) this.eligiendo = null;
     }

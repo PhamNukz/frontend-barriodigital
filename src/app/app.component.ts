@@ -16,6 +16,7 @@ const ENLACES: Enlace[] = [
   { ruta: '/dashboard', texto: 'Inicio', roles: null },
   { ruta: '/requests', texto: 'Trámites', roles: null },
   { ruta: '/tablero', texto: 'Tablero', roles: ['Admin', 'Funcionario'] },
+  { ruta: '/reglas', texto: 'Reglas', roles: ['Admin', 'Auditor'] },
   { ruta: '/catalog', texto: 'Catálogo', roles: ['Admin', 'Funcionario'] },
   { ruta: '/audit', texto: 'Auditoría', roles: ['Admin', 'Auditor', 'Funcionario'] },
   { ruta: '/reports', texto: 'Reportes', roles: ['Admin'] },

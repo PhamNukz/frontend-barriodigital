@@ -1,8 +1,8 @@
-import { Component, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild, inject } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize } from 'rxjs/operators';
-import { EstadoTramite, MAX_CONTACTOS, Paso, RequestsService, RespuestaVisita, Tramite, textoVisita } from '../requests/requests.service';
+import { EstadoTramite, MAX_CONTACTOS, Paso, RequestsService, RespuestaVisita, Tramite, archivado, textoVisita } from '../requests/requests.service';
 import { ETIQUETA_VECINO, FLUJO } from '../requests/estados';
 
 /** Que significa cada paso para el vecino. */
@@ -61,9 +61,9 @@ interface PasoVista {
                 [attr.aria-label]="z.aria" [ngClass]="z.id" (click)="cambiarLetra(z.id)">{{ z.txt }}</button>
       </div>
 
-      <!-- LISTA (A): una tarjeta por tramite -->
+      <!-- LISTA (A): una tarjeta por tramite; los cerrados hace mas de N meses (regla del Admin) van a "Historial" -->
       <ul class="sv-lista" *ngIf="!abierto" aria-label="Sus trámites">
-        <li *ngFor="let t of tramites; trackBy: porId">
+        <li *ngFor="let t of listaVisible; trackBy: porId">
           <article class="sv-card">
             <p class="sv-num">Trámite N° {{ t.id < 0 ? '…' : t.id }}</p>
             <p class="sv-tipo">{{ nombreTipo(t.tipoId) }}</p>
@@ -75,6 +75,22 @@ interface PasoVista {
           </article>
         </li>
       </ul>
+      <ng-container *ngIf="!abierto && historial.length">
+        <p class="sv-txt" *ngIf="!listaVisible.length">No tiene trámites en curso. Los terminados están en su historial.</p>
+        <button type="button" class="btn btn-outline sv-btn" [attr.aria-expanded]="verHistorial" (click)="verHistorial = !verHistorial">
+          {{ verHistorial ? 'Ocultar el historial' : 'Historial (' + historial.length + ' trámites terminados hace tiempo)' }}
+        </button>
+        <ul class="sv-lista" *ngIf="verHistorial" aria-label="Historial">
+          <li *ngFor="let t of historial; trackBy: porId">
+            <article class="sv-card">
+              <p class="sv-num">Trámite N° {{ t.id }}</p>
+              <p class="sv-tipo">{{ nombreTipo(t.tipoId) }}</p>
+              <span class="sv-pill" [ngClass]="t.estado">{{ paso(t) }}</span>
+              <button type="button" class="btn btn-outline sv-btn" (click)="abrir(t)" [attr.data-id]="t.id">Ver mi trámite</button>
+            </article>
+          </li>
+        </ul>
+      </ng-container>
 
       <section class="sv-det" *ngIf="abierto as t" [attr.aria-label]="'Trámite ' + t.id">
         <button type="button" class="btn btn-outline sv-volver sv-no-print" (click)="vista === 'detalle' ? cerrar() : (vista = 'detalle')">
@@ -176,7 +192,7 @@ interface PasoVista {
           <!-- ACCIONES (C) -->
           <div class="sv-grid2 sv-no-print">
             <button type="button" class="btn btn-outline sv-btn" (click)="vista = 'comprobante'">Comprobante</button>
-            <button type="button" class="btn btn-outline sv-btn" *ngIf="t.contactos !== undefined && abiertoTramite(t)"
+            <button type="button" class="btn btn-outline sv-btn" *ngIf="!soloLectura && t.contactos !== undefined && abiertoTramite(t)"
                     (click)="abrirFamiliar()">Avisar a un familiar</button>
           </div>
           <div class="sv-box" *ngIf="t.contactos?.length">
@@ -184,7 +200,7 @@ interface PasoVista {
             <ul class="sv-contactos">
               <li *ngFor="let c of t.contactos">
                 <span>{{ c.nombre }} · {{ c.correo }}</span>
-                <button type="button" class="btn btn-outline btn-sm" *ngIf="abiertoTramite(t)" [disabled]="guardandoFam"
+                <button type="button" class="btn btn-outline btn-sm" *ngIf="!soloLectura && abiertoTramite(t)" [disabled]="guardandoFam"
                         (click)="quitarContacto(t, c.id)" [attr.aria-label]="'Quitar a ' + c.nombre">Quitar</button>
               </li>
             </ul>
@@ -309,12 +325,39 @@ interface PasoVista {
     .sv-recibo-n { margin: 0; font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 2.2em; line-height: 1; color: var(--teal-deep); }
   `],
 })
-export class SeguimientoVecinoComponent implements OnChanges {
+export class SeguimientoVecinoComponent implements OnChanges, OnInit {
   /** Los tramites ya filtrados de la pantalla; se refrescan solos cada 10 s. */
   @Input({ required: true }) tramites: Tramite[] = [];
   @Input({ required: true }) nombreTipo!: (tipoId: number) => string;
   /** El tramite que devolvio el backend tras una accion: el padre lo reemplaza en su lista. */
   @Output() actualizado = new EventEmitter<Tramite>();
+  /** Vista previa del Admin: sin botones que llamen al backend (responder, familiares). */
+  @Input() soloLectura = false;
+  /** Meses para "Historial". null = se usa la regla del backend (si la tiene). */
+  @Input() mesesHistorial: number | null = null;
+
+  verHistorial = false;
+  private mesesRegla: number | null = null;
+
+  ngOnInit(): void {
+    // La vista previa recibe los meses del borrador; el vecino lee la regla vigente.
+    // Si el backend no tiene reglas (sin §6), no hay historial y la lista se ve completa.
+    if (this.mesesHistorial === null) this.service.reglas().subscribe({ next: (r) => (this.mesesRegla = r.mesesHistorial), error: () => {} });
+  }
+
+  private get meses(): number | null {
+    return this.mesesHistorial ?? this.mesesRegla;
+  }
+
+  get listaVisible(): Tramite[] {
+    const m = this.meses;
+    return m === null ? this.tramites : this.tramites.filter((t) => !archivado(t, m));
+  }
+
+  get historial(): Tramite[] {
+    const m = this.meses;
+    return m === null ? [] : this.tramites.filter((t) => archivado(t, m));
+  }
 
   @ViewChild('titulo') titulo?: ElementRef<HTMLElement>;
 
@@ -409,7 +452,7 @@ export class SeguimientoVecinoComponent implements OnChanges {
   }
 
   puedeResponder(t: Tramite): boolean {
-    return this.visitaVigente(t) && t.visita!.estado === 'PROPUESTA' && !this.vencida(t);
+    return !this.soloLectura && this.visitaVigente(t) && t.visita!.estado === 'PROPUESTA' && !this.vencida(t);
   }
 
   estadoVisita(t: Tramite): string {
