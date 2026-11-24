@@ -32,7 +32,18 @@ export interface Tramite {
    * null = las tiene, pero este tramite aun no tiene visita propuesta.
    */
   visita?: Visita | null;
+  /** Familiares que reciben copia de los correos. undefined = backend sin contactos (la UI se esconde). */
+  contactos?: Contacto[];
 }
+
+export interface Contacto {
+  id: number;
+  nombre: string;
+  correo: string;
+}
+
+/** Maximo de contactos por tramite (el backend responde 409 al cuarto). */
+export const MAX_CONTACTOS = 3;
 
 export type Franja = 'MANANA' | 'TARDE';
 export type EstadoVisita = 'PROPUESTA' | 'CONFIRMADA' | 'CAMBIO_PEDIDO' | 'LLAMAR';
@@ -48,6 +59,11 @@ export interface Visita {
   /** Lo que pidio el vecino con CAMBIAR (texto corto). */
   horarioPedido: string | null;
   actualizadoEn: string;
+  /**
+   * Codigo de 4 digitos que el vecino le pide a la cuadrilla antes de abrir. undefined = backend
+   * sin codigos ni "confirmar por telefono" (llegan juntos); null = visita anterior al codigo.
+   */
+  codigo?: string | null;
 }
 
 export const HORARIO_FRANJA: Record<Franja, string> = { MANANA: '9:00 a 12:00', TARDE: '14:00 a 17:00' };
@@ -146,5 +162,19 @@ export class RequestsService {
   /** Idempotente: repetirlo no reenvia el correo. */
   avisarEnCamino(id: number): Observable<Tramite> {
     return this.http.put<Tramite>(`${this.base}/${id}/en-camino`, {});
+  }
+
+  /** Funcionario/Admin: el vecino confirmo por telefono. Idempotente. */
+  confirmarVisita(id: number, nota?: string): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/visita/confirmar`, { nota: nota?.trim() || null });
+  }
+
+  /** Solo el vecino dueno; maximo MAX_CONTACTOS y sin correos repetidos (409). */
+  agregarContacto(id: number, nombre: string, correo: string): Observable<Tramite> {
+    return this.http.post<Tramite>(`${this.base}/${id}/contactos`, { nombre: nombre.trim(), correo: correo.trim() });
+  }
+
+  quitarContacto(id: number, contactoId: number): Observable<Tramite> {
+    return this.http.delete<Tramite>(`${this.base}/${id}/contactos/${contactoId}`);
   }
 }

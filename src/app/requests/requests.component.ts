@@ -9,7 +9,7 @@ import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from './requests.service';
 import { DETALLE, ETIQUETA, ETIQUETA_VECINO, SIGUIENTE } from './estados';
-import { ConversacionComponent } from '../vecino/conversacion.component';
+import { SeguimientoVecinoComponent } from '../vecino/seguimiento.component';
 import { MapaDireccionComponent } from './mapa-direccion.component';
 
 // audit.component importa ETIQUETA desde aqui.
@@ -28,7 +28,7 @@ interface Edicion {
 @Component({
   selector: 'app-requests',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ConversacionComponent, MapaDireccionComponent],
+  imports: [CommonModule, FormsModule, RouterLink, SeguimientoVecinoComponent, MapaDireccionComponent],
   template: `
     <header class="page-head">
       <div>
@@ -161,13 +161,13 @@ interface Edicion {
         </select>
       </div>
 
-      <!-- Vecino: sus tramites como conversaciones. Funcionario y Admin: las tarjetas de gestion. -->
-      <app-conversacion
+      <!-- Vecino: seguimiento paso a paso (A+C). Funcionario y Admin: las tarjetas de gestion. -->
+      <app-seguimiento-vecino
         *ngIf="!esFuncionarioOAdmin && filtrados.length"
         [tramites]="filtrados"
         [nombreTipo]="nombreTipoFn"
         (actualizado)="reemplazar($event)"
-      ></app-conversacion>
+      ></app-seguimiento-vecino>
 
       <div class="lista-tramites" *ngIf="esFuncionarioOAdmin && filtrados.length">
         <article
