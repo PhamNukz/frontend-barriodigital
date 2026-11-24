@@ -1,10 +1,15 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, of } from 'rxjs';
-import { catchError, finalize } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, Subject, forkJoin, merge, of, timer } from 'rxjs';
+import { catchError, exhaustMap, filter, startWith, switchMap } from 'rxjs/operators';
 import { CatalogService } from '../catalog/catalog.service';
 import { Kpis, RangoReporte, ReportsService, TopProcedure } from './reports.service';
+
+/** report-svc consume requests.events en milisegundos; la pantalla lo pide cada 10 s
+ * (el API Gateway HTTP no soporta WebSocket, ver Conceptos-Kafka §15). */
+const CADA_MS = 10_000;
 
 @Component({
   selector: 'app-reports',
@@ -16,29 +21,33 @@ import { Kpis, RangoReporte, ReportsService, TopProcedure } from './reports.serv
     <div class="filtros">
       <label for="f-rango">Rango</label>
       <!-- Solo last24h y last7d: son los dos unicos que acepta el backend. -->
-      <select id="f-rango" class="filtro-select" [(ngModel)]="rango" name="rango" (ngModelChange)="cargar()">
+      <select id="f-rango" class="filtro-select" [(ngModel)]="rango" name="rango" (ngModelChange)="cambiarRango()">
         <option value="last24h">Últimas 24 horas</option>
         <option value="last7d">Últimos 7 días</option>
       </select>
-      <span class="filtros-conteo">
-        <button class="btn btn-ghost btn-sm" [disabled]="cargando" (click)="cargar()">↻ Actualizar</button>
+      <span class="filtros-conteo live-ctrl">
+        <span class="live-dot" [class.pausado]="pausado" aria-hidden="true"></span>
+        <span class="live-txt">{{ pausado ? 'En pausa' : 'En vivo' }}<ng-container *ngIf="actualizado"> · actualizado hace {{ hace }} s</ng-container></span>
+        <button class="btn btn-outline btn-sm" (click)="pausado = !pausado">{{ pausado ? 'Reanudar' : 'Pausar' }}</button>
+        <button class="btn btn-ghost btn-sm btn-cancelar" (click)="refrescar$.next()">↻ Ahora</button>
       </span>
     </div>
 
-    <!-- Fallo de carga: NO se muestran KPIs en cero, que se leerian como "no hubo actividad" -->
-    <div class="load-error" *ngIf="errorCarga && !cargando">
+    <!-- Fallo de carga: NO se muestran KPIs en cero, que se leerian como "no hubo actividad".
+         Si ya habia datos de este rango se quedan, y "actualizado hace X s" dice su edad. -->
+    <div class="load-error" *ngIf="errorCarga">
       <p>{{ errorCarga }}</p>
-      <button class="btn btn-outline btn-sm" (click)="cargar()">Reintentar</button>
+      <button class="btn btn-outline btn-sm" (click)="refrescar$.next()">Reintentar</button>
     </div>
 
-    <div class="kpi-row" *ngIf="cargando">
+    <div class="kpi-row" *ngIf="!kpis && !errorCarga">
       <div class="kpi" *ngFor="let k of [1, 2, 3]" aria-hidden="true">
         <span class="skeleton skeleton-sm"></span>
         <span class="skeleton"></span>
       </div>
     </div>
 
-    <ng-container *ngIf="!cargando && !errorCarga && kpis as k">
+    <ng-container *ngIf="kpis as k">
       <div class="kpi-row">
         <div class="kpi">
           <p class="kpi-label">Trámites ingresados</p>
@@ -130,40 +139,69 @@ export class ReportsComponent implements OnInit {
   rango: RangoReporte = 'last24h';
   kpis: Kpis | null = null;
   top: TopProcedure[] = [];
-  cargando = true;
   errorCarga = '';
+  pausado = false;
+  /** Date.now() de la ultima lectura buena; `ahora` avanza cada 1 s para el "hace X s". */
+  actualizado: number | null = null;
+  ahora = Date.now();
+  readonly refrescar$ = new Subject<void>();
+  private readonly rango$ = new Subject<RangoReporte>();
   /** tipoId -> nombre, traido del catalogo para no mostrar ids pelados. */
   private nombres = new Map<number, string>();
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor(private service: ReportsService, private catalog: CatalogService) {}
 
   ngOnInit(): void {
-    this.cargar();
+    timer(0, 1000).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => (this.ahora = Date.now()));
+
+    // Mismo patron que /queues. switchMap: cambiar el rango descarta la lectura en
+    // vuelo del rango anterior y reinicia el ciclo; el tick 0 lee al tiro aunque
+    // este en pausa. exhaustMap: si una lectura tarda mas de 10 s no se apilan.
+    this.rango$
+      .pipe(
+        startWith(this.rango),
+        switchMap((rango) =>
+          merge(timer(0, CADA_MS).pipe(filter((i) => i === 0 || !this.pausado)), this.refrescar$).pipe(
+            exhaustMap(() => this.leer(rango)),
+          ),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(({ kpis, top, tipos }) => {
+        this.kpis = kpis;
+        this.top = top;
+        this.nombres = new Map(tipos.map((t) => [t.id, t.nombre]));
+        this.errorCarga = '';
+        this.actualizado = Date.now();
+      });
   }
 
-  cargar(): void {
-    this.cargando = true;
+  cambiarRango(): void {
+    // Los KPIs del rango anterior no se muestran con la etiqueta del nuevo.
+    this.kpis = null;
+    this.top = [];
     this.errorCarga = '';
-    forkJoin({
-      kpis: this.service.kpis(this.rango),
-      top: this.service.topProcedures(this.rango),
+    this.rango$.next(this.rango);
+  }
+
+  private leer(rango: RangoReporte) {
+    return forkJoin({
+      kpis: this.service.kpis(rango),
+      top: this.service.topProcedures(rango),
       // El nombre del tipo es decoracion: si el catalogo falla, la tabla cae a
       // "Tipo #id" (visible, no silencioso) en vez de tumbar todo el reporte.
       tipos: this.catalog.listar().pipe(catchError(() => of([]))),
-    })
-      .pipe(finalize(() => (this.cargando = false)))
-      .subscribe({
-        next: ({ kpis, top, tipos }) => {
-          this.kpis = kpis;
-          this.top = top;
-          this.nombres = new Map(tipos.map((t) => [t.id, t.nombre]));
-        },
-        error: (e) => {
-          this.kpis = null;
-          this.top = [];
-          this.errorCarga = e.error?.detail ?? `No se pudieron cargar los reportes (${e.status}).`;
-        },
-      });
+    }).pipe(
+      catchError((e) => {
+        this.errorCarga = e.error?.detail ?? `No se pudieron cargar los reportes (${e.status}).`;
+        return EMPTY;
+      }),
+    );
+  }
+
+  get hace(): number {
+    return Math.max(0, Math.round((this.ahora - (this.actualizado ?? this.ahora)) / 1000));
   }
 
   get etiquetaRango(): string {
