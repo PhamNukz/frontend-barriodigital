@@ -3,11 +3,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { EMPTY, interval } from 'rxjs';
+import { EMPTY, Observable, interval } from 'rxjs';
 import { catchError, finalize, switchMap } from 'rxjs/operators';
 import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
-import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from '../requests/requests.service';
+import { CupoInfo, EstadoTramite, EstadoVisita, Franja, HORARIO_FRANJA, Paso, RequestsService, Tramite, Visita, textoVisita } from '../requests/requests.service';
 import { ETIQUETA, ETIQUETA_VECINO, FLUJO, SIGUIENTE } from '../requests/estados';
 import { MapaDireccionComponent } from '../requests/mapa-direccion.component';
 
@@ -30,6 +30,36 @@ const AVISO_VECINO: Partial<Record<EstadoTramite, string>> = {
 
 /** Los cerrados (resueltos o rechazados) se muestran solo si cerraron en estos dias. */
 const DIAS_CERRADOS = 7;
+
+/** Como lo lee el funcionario (el vecino ve sus propios textos en la conversacion). */
+const ESTADO_VISITA: Record<EstadoVisita, string> = {
+  PROPUESTA: 'Esperando al vecino',
+  CONFIRMADA: 'Confirmada',
+  CAMBIO_PEDIDO: 'Pidió otro horario',
+  LLAMAR: 'Pidió que lo llamen',
+};
+
+/** Sugerencias del campo cuadrilla (el backend acepta cualquier nombre de hasta 100 caracteres). */
+const CUADRILLAS = ['Cuadrilla Norte', 'Cuadrilla Sur', 'Cuadrilla Áreas Verdes'];
+
+/** Estados en los que se puede proponer o reprogramar la visita. */
+const AGENDABLE: EstadoTramite[] = ['ADMITIDO', 'EN_GESTION', 'EN_TERRENO'];
+
+const CORREO = /^\S+@\S+\.\S+$/;
+
+/** "2026-11-26" de hoy en la hora del navegador (el backend valida en hora de Chile). */
+function hoyIso(): string {
+  const d = new Date();
+  const dos = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+}
+
+interface FormVisita {
+  fecha: string;
+  franja: Franja;
+  cuadrilla: string;
+  nota: string;
+}
 
 interface Columna {
   estado: EstadoTramite;
@@ -96,15 +126,22 @@ interface Columna {
             </button>
             <div class="tb-card-meta">
               <span class="tb-edad" [ngClass]="'tb-' + antiguedad(t).nivel">{{ antiguedad(t).texto }}</span>
-              <span class="tb-quien" *ngIf="t.funcionarioAsignado" [title]="t.funcionarioAsignado">{{ usuario(t.funcionarioAsignado) }}</span>
+              <span class="tb-quien" *ngIf="quien(t) as q" [title]="q">{{ usuario(q) }}</span>
             </div>
+            <p class="tb-visita" *ngIf="visitaVigente(t) && t.visita as v" [ngClass]="'tb-v-' + v.estado">
+              Visita {{ textoVisita(v) }} · {{ ESTADO_VISITA[v.estado] }}
+            </p>
+            <p class="tb-visita tb-v-CONFIRMADA" *ngIf="t.estado === 'EN_TERRENO' && t.enCaminoDesde">
+              En camino desde las {{ t.enCaminoDesde | date: 'HH:mm' }}
+            </p>
             <p class="tb-meson" *ngIf="t.creadoPor">Ingresado en mesón por {{ usuario(t.creadoPor) }}</p>
             <p class="tb-bloqueo" *ngIf="sinCupo(t)">Sin cupo hoy · se reinicia {{ reinicio(t) }}</p>
+            <p class="tb-bloqueo" *ngIf="bloqueadoPorVisita(t)">Falta que el vecino confirme la visita</p>
             <button
               *ngIf="verbo(t) as v"
               type="button"
               class="btn btn-primary btn-sm tb-mover"
-              [disabled]="actualizando.has(t.id) || sinCupo(t)"
+              [disabled]="actualizando.has(t.id) || sinCupo(t) || bloqueadoPorVisita(t)"
               (click)="mover(t)"
             >{{ actualizando.has(t.id) ? 'Guardando…' : v + ' →' }}</button>
           </article>
@@ -131,9 +168,77 @@ interface Columna {
           <div *ngIf="t.direccion"><dt>Dirección</dt><dd>{{ t.direccion }}</dd></div>
           <div *ngIf="t.referencia"><dt>Referencias</dt><dd>{{ t.referencia }}</dd></div>
           <div><dt>Ingresado</dt><dd>{{ t.fechaIngreso | date: 'd MMM y, HH:mm' }}</dd></div>
+          <div *ngIf="t.responsable !== undefined"><dt>Responsable</dt><dd>{{ t.responsable || 'Sin asignar' }}</dd></div>
           <div *ngIf="t.funcionarioAsignado"><dt>Último funcionario</dt><dd>{{ t.funcionarioAsignado }}</dd></div>
           <div *ngIf="t.creadoPor"><dt>Ingresado por</dt><dd>{{ t.creadoPor }} (a nombre del vecino)</dd></div>
         </dl>
+
+        <!-- Reasignar: solo si el backend trae "responsable" y el tramite sigue abierto -->
+        <div class="tb-bloque" *ngIf="t.responsable !== undefined && abiertoParaCambios(t)">
+          <h3 class="tb-d-h">Responsable</h3>
+          <div class="row-actions">
+            <button type="button" class="btn btn-outline btn-sm" *ngIf="username && t.responsable !== username"
+                    [disabled]="actualizando.has(t.id)" (click)="asignar(t, username)">Asignármelo</button>
+          </div>
+          <label class="tb-lbl" for="tb-resp">Reasignar a (correo)</label>
+          <div class="tb-fila">
+            <input id="tb-resp" class="tb-inp" type="email" [(ngModel)]="responsableNuevo" name="responsableNuevo"
+                   placeholder="funcionario@duocuc.cl" autocomplete="off" />
+            <button type="button" class="btn btn-outline btn-sm" [disabled]="actualizando.has(t.id) || !correoValido(responsableNuevo)"
+                    (click)="asignar(t, responsableNuevo)">Reasignar</button>
+          </div>
+        </div>
+
+        <!-- Visita: proponer o reprogramar; el vecino responde desde su conversacion -->
+        <div class="tb-bloque" *ngIf="puedeAgendar(t)">
+          <h3 class="tb-d-h">Visita</h3>
+          <ng-container *ngIf="t.visita as v">
+            <p class="tb-visita" [ngClass]="'tb-v-' + v.estado">
+              {{ textoVisita(v) }} · {{ v.cuadrilla }} · <b>{{ ESTADO_VISITA[v.estado] }}</b>
+            </p>
+            <p class="hint" *ngIf="v.estado === 'CAMBIO_PEDIDO'">El vecino pidió: «{{ v.horarioPedido }}». Reprograma con ese horario.</p>
+            <p class="hint" *ngIf="v.estado === 'LLAMAR'">El vecino pidió que lo llamen para acordar el día. Después reprograma con lo acordado.</p>
+          </ng-container>
+          <div class="tb-form">
+            <div>
+              <label class="tb-lbl" for="tb-fecha">Día</label>
+              <input id="tb-fecha" class="tb-inp" type="date" [min]="hoy" [(ngModel)]="formVisita.fecha" name="fecha" />
+            </div>
+            <div>
+              <span class="tb-lbl" id="tb-franja-l">Franja</span>
+              <div class="tb-seg" role="group" aria-labelledby="tb-franja-l">
+                <button type="button" *ngFor="let f of FRANJAS" [class.on]="formVisita.franja === f"
+                        [attr.aria-pressed]="formVisita.franja === f" (click)="formVisita.franja = f">{{ HORARIO_FRANJA[f] }}</button>
+              </div>
+            </div>
+            <div>
+              <label class="tb-lbl" for="tb-cuadrilla">Cuadrilla</label>
+              <input id="tb-cuadrilla" class="tb-inp" list="tb-cuadrillas" maxlength="100" [(ngModel)]="formVisita.cuadrilla" name="cuadrilla" />
+              <datalist id="tb-cuadrillas"><option *ngFor="let c of CUADRILLAS" [value]="c"></option></datalist>
+            </div>
+            <div>
+              <label class="tb-lbl" for="tb-vnota">Indicación para el vecino <span class="opcional">(opcional)</span></label>
+              <input id="tb-vnota" class="tb-inp" maxlength="500" [(ngModel)]="formVisita.nota" name="vnota"
+                     placeholder="Ej.: deje las ramas juntas en la vereda" />
+            </div>
+          </div>
+          <p class="tb-bloqueo" *ngIf="formVisita.fecha && formVisita.fecha < hoy">La fecha ya pasó.</p>
+          <div class="row-actions">
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="actualizando.has(t.id) || !visitaValida()" (click)="proponerVisita(t)">
+              {{ t.visita ? 'Reprogramar visita' : 'Proponer visita' }}
+            </button>
+          </div>
+          <p class="hint">El vecino la recibe por correo y en su conversación, con botones para confirmar o pedir otro horario.</p>
+          <p class="hint" *ngIf="t.visita && t.estado === 'EN_TERRENO'">Reprogramar vuelve la visita a «Esperando al vecino» y borra el aviso «en camino».</p>
+        </div>
+
+        <!-- En camino: solo en terreno -->
+        <div class="tb-bloque" *ngIf="t.estado === 'EN_TERRENO' && t.enCaminoDesde !== undefined">
+          <h3 class="tb-d-h">Cuadrilla</h3>
+          <p class="tb-visita tb-v-CONFIRMADA" *ngIf="t.enCaminoDesde">Avisado: en camino desde las {{ t.enCaminoDesde | date: 'HH:mm' }}.</p>
+          <button type="button" class="btn btn-outline btn-sm" *ngIf="!t.enCaminoDesde" [disabled]="actualizando.has(t.id)"
+                  (click)="avisarEnCamino(t)">Avisar al vecino: la cuadrilla va en camino</button>
+        </div>
         <!-- Punto que marco el vecino, con link a Google Maps para la cuadrilla. -->
         <app-mapa-direccion *ngIf="t.lat != null && t.lng != null"
           [lat]="t.lat" [lng]="t.lng" [soloLectura]="true"></app-mapa-direccion>
@@ -159,7 +264,7 @@ interface Columna {
                     placeholder="La verá en su seguimiento"></textarea>
           <div class="row-actions">
             <button *ngIf="verbo(t) as v" type="button" class="btn btn-primary btn-sm"
-                    [disabled]="actualizando.has(t.id) || sinCupo(t)" (click)="mover(t, nota)">{{ v }} →</button>
+                    [disabled]="actualizando.has(t.id) || sinCupo(t) || bloqueadoPorVisita(t)" (click)="mover(t, nota)">{{ v }} →</button>
             <button *ngIf="!confirmandoRechazo" type="button" class="btn btn-danger btn-sm"
                     [disabled]="actualizando.has(t.id) || nota.trim().length < 5" (click)="confirmandoRechazo = true">Rechazar…</button>
             <ng-container *ngIf="confirmandoRechazo">
@@ -168,6 +273,7 @@ interface Columna {
             </ng-container>
           </div>
           <p class="hint" *ngIf="verbo(t)">{{ avisoVecino(t) }}</p>
+          <p class="tb-bloqueo" *ngIf="bloqueadoPorVisita(t)">No se puede enviar a terreno hasta que el vecino confirme la visita.</p>
           <p class="hint" *ngIf="nota.trim().length < 5">Para rechazar, escribe el motivo (lo verá el vecino).</p>
         </ng-container>
         <p class="hint" *ngIf="!abiertoParaCambios(t)">Trámite cerrado: ya no tiene acciones.</p>
@@ -229,6 +335,19 @@ interface Columna {
     .tb-rec em { flex-basis: 100%; font-style: normal; padding: 6px 10px; border-radius: 8px; background: var(--paper-sunk); color: var(--ink); }
     .tb-lbl { display: block; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
     .tb-txt { width: 100%; box-sizing: border-box; min-height: 70px; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line-strong); font: inherit; background: var(--paper); resize: vertical; }
+    .tb-visita { margin: 0; padding: 4px 8px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; }
+    .tb-visita::first-letter { text-transform: uppercase; }
+    .tb-v-PROPUESTA { background: rgba(242, 177, 52, 0.28); color: #6d4b02; }
+    .tb-v-CONFIRMADA { background: rgba(27, 100, 87, 0.15); color: #0f5a4c; }
+    .tb-v-CAMBIO_PEDIDO, .tb-v-LLAMAR { background: rgba(38, 101, 168, 0.14); color: #1d5288; }
+    .tb-bloque { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .tb-bloque .tb-d-h { margin: 0; }
+    .tb-bloque .tb-visita { font-size: 0.88rem; }
+    .tb-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .tb-form .tb-seg button { flex: 1; font-size: 0.82rem; }
+    .tb-fila { display: flex; gap: 8px; }
+    .tb-inp { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 10px; border-radius: 10px; border: 1.5px solid var(--line-strong); font: inherit; background: var(--paper); }
+    .tb-fila .tb-inp { flex: 1; min-width: 0; }
     @media (max-width: 600px) {
       .tb-carga { margin-left: 0; }
       .tb-cols { grid-auto-columns: 82%; }
@@ -237,6 +356,13 @@ interface Columna {
 })
 export class TableroComponent implements OnInit {
   readonly DIAS_CERRADOS = DIAS_CERRADOS;
+  readonly ESTADO_VISITA = ESTADO_VISITA;
+  readonly CUADRILLAS = CUADRILLAS;
+  readonly FRANJAS: Franja[] = ['MANANA', 'TARDE'];
+  readonly HORARIO_FRANJA = HORARIO_FRANJA;
+  readonly textoVisita = textoVisita;
+  formVisita: FormVisita = this.formVacio(null);
+  responsableNuevo = '';
   tramites: Tramite[] = [];
   tipos: TipoTramite[] = [];
   cupos = new Map<number, CupoInfo>();
@@ -323,7 +449,7 @@ export class TableroComponent implements OnInit {
 
   get columnas(): Columna[] {
     const base = this.soloMios
-      ? this.tramites.filter((t) => t.funcionarioAsignado === this.username || (t.estado === 'INGRESADO' && !t.funcionarioAsignado))
+      ? this.tramites.filter((t) => this.quien(t) === this.username || (t.estado === 'INGRESADO' && !this.quien(t)))
       : this.tramites;
     const estados: EstadoTramite[] = this.verRechazados ? [...FLUJO, 'RECHAZADO'] : FLUJO;
     const limite = Date.now() - DIAS_CERRADOS * 864e5;
@@ -338,12 +464,13 @@ export class TableroComponent implements OnInit {
     });
   }
 
-  /** Funcionarios con tramites abiertos (segun el ultimo que los movio; no hay "responsable" todavia). */
+  /** Funcionarios con tramites abiertos: el responsable, o el ultimo que lo movio si no hay. */
   get carga(): { nombre: string; n: number }[] {
     const conteo = new Map<string, number>();
     for (const t of this.tramites) {
-      if (!t.funcionarioAsignado || !SIGUIENTE[t.estado]) continue;
-      const k = this.usuario(t.funcionarioAsignado);
+      const q = this.quien(t);
+      if (!q || !SIGUIENTE[t.estado]) continue;
+      const k = this.usuario(q);
       conteo.set(k, (conteo.get(k) ?? 0) + 1);
     }
     return [...conteo].map(([nombre, n]) => ({ nombre, n })).sort((a, b) => b.n - a.n).slice(0, 5);
@@ -386,6 +513,86 @@ export class TableroComponent implements OnInit {
     return email ? email.split('@')[0] : '';
   }
 
+  /** A cargo: el responsable explicito; si el backend no lo trae o esta vacio, el ultimo que lo movio. */
+  quien(t: Tramite): string | null {
+    return t.responsable || t.funcionarioAsignado;
+  }
+
+  get hoy(): string {
+    return hoyIso();
+  }
+
+  correoValido(c: string): boolean {
+    return CORREO.test(c.trim());
+  }
+
+  visitaVigente(t: Tramite): boolean {
+    return !!t.visita && !!SIGUIENTE[t.estado];
+  }
+
+  /** undefined = backend sin visitas: el bloque no se muestra. */
+  puedeAgendar(t: Tramite): boolean {
+    return t.visita !== undefined && AGENDABLE.includes(t.estado);
+  }
+
+  /** La misma regla del backend: con visita, no se va a terreno sin confirmacion (sin visita se permite). */
+  bloqueadoPorVisita(t: Tramite): boolean {
+    return t.estado === 'EN_GESTION' && !!t.visita && t.visita.estado !== 'CONFIRMADA';
+  }
+
+  visitaValida(): boolean {
+    const f = this.formVisita;
+    return !!f.fecha && f.fecha >= this.hoy && !!f.cuadrilla.trim();
+  }
+
+  /** Parte de la visita actual (si sigue vigente) para reprogramar cambiando solo lo necesario. */
+  private formVacio(v: Visita | null | undefined): FormVisita {
+    const vigente = v && v.fecha >= hoyIso();
+    return { fecha: vigente ? v!.fecha : '', franja: v?.franja ?? 'MANANA', cuadrilla: v?.cuadrilla ?? '', nota: '' };
+  }
+
+  proponerVisita(t: Tramite): void {
+    if (!this.visitaValida() || this.actualizando.has(t.id)) return;
+    const f = this.formVisita;
+    this.accion(t, this.service.proponerVisita(t.id, f.fecha, f.franja, f.cuadrilla, f.nota), (real) => {
+      this.formVisita = this.formVacio(real.visita);
+      this.cargarPasos(real); // el backend replanifica el paso EN_TERRENO con la fecha de la visita
+      return `Visita propuesta a ${this.usuario(real.vecinoUsername)}: ${real.visita ? textoVisita(real.visita) : ''}. La recibe por correo y en su conversación.`;
+    });
+  }
+
+  asignar(t: Tramite, correo: string): void {
+    if (!this.correoValido(correo) || this.actualizando.has(t.id)) return;
+    this.accion(t, this.service.asignarResponsable(t.id, correo), (real) => {
+      this.responsableNuevo = '';
+      return `N° ${real.id} quedó a cargo de ${this.usuario(real.responsable)}.`;
+    });
+  }
+
+  avisarEnCamino(t: Tramite): void {
+    if (this.actualizando.has(t.id)) return;
+    this.accion(t, this.service.avisarEnCamino(t.id), (real) => `Aviso enviado a ${this.usuario(real.vecinoUsername)}: la cuadrilla va en camino.`);
+  }
+
+  /** Visita, responsable y en camino devuelven el tramite completo: se reemplaza tal cual. */
+  private accion(t: Tramite, peticion: Observable<Tramite>, exito: (real: Tramite) => string): void {
+    this.actualizando.add(t.id);
+    this.error = '';
+    this.aviso = '';
+    peticion.pipe(finalize(() => this.actualizando.delete(t.id))).subscribe({
+      next: (real) => {
+        this.tramites = this.tramites.map((x) => (x.id === real.id ? real : x));
+        if (this.abierto?.id === real.id) this.abierto = real;
+        this.aviso = exito(real);
+      },
+      // 409 (estado cambio o cerrado) / 400 (fecha pasada, correo invalido): el detalle del backend lo explica.
+      error: (e) => {
+        this.error = e.error?.detail ?? `No se pudo guardar (${e.status}).`;
+        this.cargar(false);
+      },
+    });
+  }
+
   /**
    * Cuanto lleva abierto. ponytail: umbrales fijos (admitir en 24 h, cerrar en 7 dias);
    * pasan a plazos por tipo en el catalogo cuando existan (caso de uso 4.10).
@@ -413,7 +620,7 @@ export class TableroComponent implements OnInit {
 
   mover(t: Tramite, nota?: string): void {
     const sig = SIGUIENTE[t.estado];
-    if (!sig || this.actualizando.has(t.id) || this.sinCupo(t)) return;
+    if (!sig || this.actualizando.has(t.id) || this.sinCupo(t) || this.bloqueadoPorVisita(t)) return;
     this.cambiar(t, sig, nota);
   }
 
@@ -453,6 +660,8 @@ export class TableroComponent implements OnInit {
     this.abierto = t;
     this.nota = '';
     this.confirmandoRechazo = false;
+    this.formVisita = this.formVacio(t.visita);
+    this.responsableNuevo = '';
     this.cargarPasos(t);
     setTimeout(() => this.cerrarBtn?.nativeElement.focus());
   }
