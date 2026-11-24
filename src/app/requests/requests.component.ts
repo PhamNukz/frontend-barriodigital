@@ -8,34 +8,11 @@ import { catchError, finalize, switchMap } from 'rxjs/operators';
 import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from './requests.service';
+import { DETALLE, ETIQUETA, ETIQUETA_VECINO, SIGUIENTE } from './estados';
+import { ConversacionComponent } from '../vecino/conversacion.component';
 
-/** Siguiente estado sugerido en la UI; el backend vuelve a validar la transicion. */
-const SIGUIENTE: Partial<Record<EstadoTramite, EstadoTramite>> = {
-  INGRESADO: 'ADMITIDO',
-  ADMITIDO: 'EN_GESTION',
-  EN_GESTION: 'EN_TERRENO',
-  EN_TERRENO: 'RESUELTO',
-};
-
-/** El backend usa el enum (EN_GESTION); la pantalla no tiene por que mostrar guiones bajos. */
-export const ETIQUETA: Record<EstadoTramite, string> = {
-  INGRESADO: 'Ingresado',
-  ADMITIDO: 'Admitido',
-  EN_GESTION: 'En gestión',
-  EN_TERRENO: 'En terreno',
-  RESUELTO: 'Resuelto',
-  RECHAZADO: 'Rechazado',
-};
-
-/** Que significa cada paso para el vecino, en una linea. */
-const DETALLE: Record<EstadoTramite, string> = {
-  INGRESADO: 'Recibimos tu solicitud.',
-  ADMITIDO: 'Cumple los requisitos y tomó un cupo del día.',
-  EN_GESTION: 'Un funcionario la está trabajando.',
-  EN_TERRENO: 'Una cuadrilla irá a la dirección indicada.',
-  RESUELTO: 'Trámite cerrado. Te enviamos el certificado.',
-  RECHAZADO: 'La solicitud no pudo seguir adelante.',
-};
+// audit.component importa ETIQUETA desde aqui.
+export { ETIQUETA };
 
 type EstadoParada = 'hecho' | 'actual' | 'pendiente' | 'omitido' | 'rechazado';
 
@@ -50,7 +27,7 @@ interface Edicion {
 @Component({
   selector: 'app-requests',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, ConversacionComponent],
   template: `
     <header class="page-head">
       <div>
@@ -171,7 +148,14 @@ interface Edicion {
         </select>
       </div>
 
-      <div class="lista-tramites" *ngIf="filtrados.length; else vacio">
+      <!-- Vecino: sus tramites como conversaciones. Funcionario y Admin: las tarjetas de gestion. -->
+      <app-conversacion
+        *ngIf="!esFuncionarioOAdmin && filtrados.length"
+        [tramites]="filtrados"
+        [nombreTipo]="nombreTipoFn"
+      ></app-conversacion>
+
+      <div class="lista-tramites" *ngIf="esFuncionarioOAdmin && filtrados.length">
         <article
           *ngFor="let t of filtrados; trackBy: trackById"
           class="tramite"
@@ -306,6 +290,7 @@ interface Edicion {
           </section>
         </article>
       </div>
+      <ng-container *ngIf="!filtrados.length" [ngTemplateOutlet]="vacio"></ng-container>
       <ng-template #vacio>
         <div class="vacio">
           <p>{{ tramites.length ? 'Ningún trámite coincide con el filtro.' : 'Todavía no hay trámites.' }}</p>
@@ -427,8 +412,12 @@ export class RequestsComponent implements OnInit {
     return this.cupos.get(tipoId)?.nombre ?? this.tipos.find((t) => t.id === tipoId)?.nombre ?? `Tipo #${tipoId}`;
   }
 
+  /** Para pasar como @Input a la conversacion del vecino (sin perder el this). */
+  readonly nombreTipoFn = (tipoId: number): string => this.nombreTipo(tipoId);
+
+  /** Funcionario y Admin ven el nombre del estado del caso; el vecino, la version simple. */
   etiqueta(estado: EstadoTramite): string {
-    return ETIQUETA[estado];
+    return (this.esFuncionarioOAdmin ? ETIQUETA : ETIQUETA_VECINO)[estado];
   }
 
   detalle(estado: EstadoTramite): string {

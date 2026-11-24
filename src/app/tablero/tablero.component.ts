@@ -1,0 +1,481 @@
+import { Component, DestroyRef, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, interval } from 'rxjs';
+import { catchError, finalize, switchMap } from 'rxjs/operators';
+import { SessionService } from '../auth/session.service';
+import { CatalogService, TipoTramite } from '../catalog/catalog.service';
+import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from '../requests/requests.service';
+import { ETIQUETA, ETIQUETA_VECINO, FLUJO, SIGUIENTE } from '../requests/estados';
+
+/** Texto del boton que mueve la tarjeta a la columna siguiente. */
+const VERBO: Partial<Record<EstadoTramite, string>> = {
+  INGRESADO: 'Admitir',
+  ADMITIDO: 'Tomar y gestionar',
+  EN_GESTION: 'Enviar a terreno',
+  EN_TERRENO: 'Resolver',
+};
+
+/** Que le llega al vecino con cada paso, segun lo que publica hoy TramiteEventRelay. */
+const AVISO_VECINO: Partial<Record<EstadoTramite, string>> = {
+  ADMITIDO: 'El vecino recibe el correo «Su solicitud fue aprobada».',
+  EN_GESTION: 'Sin correo: el vecino ve «En proceso» en su seguimiento.',
+  EN_TERRENO: 'El vecino recibe «Su visita quedó agendada» y la cuadrilla su ticket.',
+  RESUELTO: 'El vecino recibe el certificado por correo.',
+  RECHAZADO: 'El vecino verá el motivo en su seguimiento.',
+};
+
+/** Los cerrados (resueltos o rechazados) se muestran solo si cerraron en estos dias. */
+const DIAS_CERRADOS = 7;
+
+interface Columna {
+  estado: EstadoTramite;
+  titulo: string;
+  vecinoVe: string;
+  tarjetas: Tramite[];
+  ocultos: number;
+}
+
+@Component({
+  selector: 'app-tablero',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterLink],
+  template: `
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Gestión municipal</p>
+        <h1>Tablero de trámites</h1>
+        <p class="lead-sm">Una columna por estado. Mueve cada trámite al paso siguiente o tócalo para ver su recorrido y rechazarlo con un motivo.</p>
+      </div>
+    </header>
+
+    <div class="tb-barra">
+      <div class="tb-seg" role="group" aria-label="Qué trámites ver">
+        <button type="button" [class.on]="!soloMios" [attr.aria-pressed]="!soloMios" (click)="soloMios = false">Todo el equipo</button>
+        <button type="button" [class.on]="soloMios" [attr.aria-pressed]="soloMios" (click)="soloMios = true">Míos y sin tomar</button>
+      </div>
+      <label class="tb-check">
+        <input type="checkbox" [(ngModel)]="verRechazados" name="verRechazados" />
+        Ver rechazados ({{ contarCerrados('RECHAZADO') }})
+      </label>
+      <p class="tb-carga" *ngIf="carga.length">
+        <span class="tb-carga-l">Abiertos por funcionario:</span>
+        <span class="tb-persona" *ngFor="let c of carga">{{ c.nombre }} · {{ c.n }}</span>
+      </p>
+    </div>
+
+    <p class="tb-ok" *ngIf="aviso" role="status">{{ aviso }}</p>
+    <p class="aviso-error" *ngIf="error" role="alert">{{ error }}</p>
+
+    <div class="load-error" *ngIf="errorCarga && !cargando">
+      <p>{{ errorCarga }}</p>
+      <button class="btn btn-outline btn-sm" type="button" (click)="cargar(true)">Reintentar</button>
+    </div>
+    <p class="muted" *ngIf="cargando">Cargando el tablero…</p>
+
+    <div class="tb-scroll" *ngIf="!cargando && !errorCarga">
+      <div class="tb-cols">
+        <section *ngFor="let col of columnas; trackBy: porEstado" class="tb-col" [ngClass]="col.estado" [attr.aria-label]="col.titulo">
+          <div class="tb-col-h">
+            <div>
+              <h2 class="tb-col-t">{{ col.titulo }}</h2>
+              <p class="tb-col-v">El vecino ve «{{ col.vecinoVe }}»</p>
+            </div>
+            <span class="tb-n">{{ col.tarjetas.length }}</span>
+          </div>
+
+          <article class="tb-card" *ngFor="let t of col.tarjetas; trackBy: porId" [class.tb-card-on]="abierto?.id === t.id">
+            <button type="button" class="tb-card-open" (click)="abrir(t)" [attr.data-id]="t.id"
+                    [attr.aria-label]="'Abrir trámite ' + t.id + ', ' + nombreTipo(t.tipoId)">
+              <span class="tb-card-n">N° {{ t.id }}</span>
+              <span class="tb-card-t">{{ nombreTipo(t.tipoId) }}</span>
+              <span class="tb-card-s">{{ usuario(t.vecinoUsername) }}<ng-container *ngIf="t.direccion"> · {{ t.direccion }}</ng-container></span>
+            </button>
+            <div class="tb-card-meta">
+              <span class="tb-edad" [ngClass]="'tb-' + antiguedad(t).nivel">{{ antiguedad(t).texto }}</span>
+              <span class="tb-quien" *ngIf="t.funcionarioAsignado" [title]="t.funcionarioAsignado">{{ usuario(t.funcionarioAsignado) }}</span>
+            </div>
+            <p class="tb-meson" *ngIf="t.creadoPor">Ingresado en mesón por {{ usuario(t.creadoPor) }}</p>
+            <p class="tb-bloqueo" *ngIf="sinCupo(t)">Sin cupo hoy · se reinicia {{ reinicio(t) }}</p>
+            <button
+              *ngIf="verbo(t) as v"
+              type="button"
+              class="btn btn-primary btn-sm tb-mover"
+              [disabled]="actualizando.has(t.id) || sinCupo(t)"
+              (click)="mover(t)"
+            >{{ actualizando.has(t.id) ? 'Guardando…' : v + ' →' }}</button>
+          </article>
+
+          <p class="tb-vacia" *ngIf="!col.tarjetas.length">Sin trámites</p>
+          <p class="tb-ocultos" *ngIf="col.ocultos">y {{ col.ocultos }} cerrados hace más de {{ DIAS_CERRADOS }} días (ver en Trámites)</p>
+        </section>
+      </div>
+    </div>
+
+    <!-- Panel lateral NO modal: el tablero sigue usable detras (otra tarjeta cambia el panel). -->
+    <ng-container *ngIf="abierto as t">
+      <aside class="tb-drawer" role="region" [attr.aria-label]="'Detalle del trámite ' + t.id" (keydown.escape)="cerrar()">
+        <div class="tb-d-top">
+          <div>
+            <p class="eyebrow">N° {{ t.id }} · {{ etiqueta(t.estado) }}</p>
+            <h2 class="tb-d-t">{{ nombreTipo(t.tipoId) }}</h2>
+          </div>
+          <button #cerrarBtn type="button" class="btn btn-outline btn-sm" (click)="cerrar()" aria-label="Cerrar panel">✕</button>
+        </div>
+        <p class="tb-d-desc">{{ t.descripcion }}</p>
+        <dl class="ficha">
+          <div><dt>Vecino</dt><dd>{{ t.vecinoUsername }}</dd></div>
+          <div *ngIf="t.direccion"><dt>Dirección</dt><dd>{{ t.direccion }}</dd></div>
+          <div><dt>Ingresado</dt><dd>{{ t.fechaIngreso | date: 'd MMM y, HH:mm' }}</dd></div>
+          <div *ngIf="t.funcionarioAsignado"><dt>Último funcionario</dt><dd>{{ t.funcionarioAsignado }}</dd></div>
+          <div *ngIf="t.creadoPor"><dt>Ingresado por</dt><dd>{{ t.creadoPor }} (a nombre del vecino)</dd></div>
+        </dl>
+
+        <div>
+          <h3 class="tb-d-h">Recorrido</h3>
+          <p class="muted" *ngIf="cargandoPasos">Cargando…</p>
+          <p class="aviso-error" *ngIf="errorPasos">{{ errorPasos }}</p>
+          <ol class="tb-rec" *ngIf="pasos && !cargandoPasos">
+            <li *ngFor="let p of pasosVisibles(t)" [class.tb-rec-ok]="p.fechaCumplido">
+              <b>{{ etiqueta(p.estado) }}</b>
+              <span *ngIf="p.fechaCumplido">{{ p.fechaCumplido | date: 'd MMM, HH:mm' }}</span>
+              <span *ngIf="!p.fechaCumplido && p.fechaEstimada">estimado {{ p.fechaEstimada | date: 'd MMM, HH:mm' }}</span>
+              <span *ngIf="!p.fechaCumplido && !p.fechaEstimada">pendiente</span>
+              <em *ngIf="p.nota">{{ p.nota }}</em>
+            </li>
+          </ol>
+        </div>
+
+        <ng-container *ngIf="abiertoParaCambios(t)">
+          <label class="tb-lbl" for="tb-nota">Nota para el vecino <span class="opcional">(obligatoria para rechazar)</span></label>
+          <textarea id="tb-nota" class="tb-txt" [(ngModel)]="nota" name="nota" maxlength="500"
+                    placeholder="La verá en su seguimiento"></textarea>
+          <div class="row-actions">
+            <button *ngIf="verbo(t) as v" type="button" class="btn btn-primary btn-sm"
+                    [disabled]="actualizando.has(t.id) || sinCupo(t)" (click)="mover(t, nota)">{{ v }} →</button>
+            <button *ngIf="!confirmandoRechazo" type="button" class="btn btn-danger btn-sm"
+                    [disabled]="actualizando.has(t.id) || nota.trim().length < 5" (click)="confirmandoRechazo = true">Rechazar…</button>
+            <ng-container *ngIf="confirmandoRechazo">
+              <button type="button" class="btn btn-danger btn-sm" [disabled]="actualizando.has(t.id)" (click)="rechazar(t)">Sí, rechazar</button>
+              <button type="button" class="btn btn-ghost btn-sm btn-cancelar" (click)="confirmandoRechazo = false">Cancelar</button>
+            </ng-container>
+          </div>
+          <p class="hint" *ngIf="verbo(t)">{{ avisoVecino(t) }}</p>
+          <p class="hint" *ngIf="nota.trim().length < 5">Para rechazar, escribe el motivo (lo verá el vecino).</p>
+        </ng-container>
+        <p class="hint" *ngIf="!abiertoParaCambios(t)">Trámite cerrado: ya no tiene acciones.</p>
+
+        <a class="btn-link" [routerLink]="'/audit'" [queryParams]="{ persona: t.vecinoUsername }">Ver historial del vecino →</a>
+      </aside>
+    </ng-container>
+  `,
+  styles: [`
+    .tb-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 16px; }
+    .tb-seg { display: flex; gap: 4px; padding: 3px; border-radius: 12px; background: var(--paper-sunk); }
+    .tb-seg button { min-height: 40px; padding: 4px 14px; border-radius: 9px; border: 0; background: transparent; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+    .tb-seg button.on { background: var(--teal-deep); color: #fff; }
+    .tb-check { display: flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; min-height: 40px; }
+    .tb-check input { width: 18px; height: 18px; accent-color: var(--teal); }
+    .tb-carga { margin: 0 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.85rem; }
+    .tb-carga-l { font-weight: 800; color: var(--ink-soft); }
+    .tb-persona { padding: 2px 10px; border-radius: 999px; background: var(--paper-raised); border: 1px solid var(--line); font-weight: 700; }
+    .tb-ok { margin: 0 0 14px; padding: 12px 16px; border-radius: 12px; background: var(--teal-deep); color: #fff; font-weight: 600; }
+    .tb-scroll { overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+    .tb-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: 12px; }
+    .tb-col { scroll-snap-align: start; display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: var(--radius); background: var(--paper-sunk); min-height: 420px; }
+    .tb-col-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 4px 8px; border-bottom: 3px solid var(--c, var(--teal)); }
+    .tb-col-t { margin: 0; font-family: "Public Sans", sans-serif; font-size: 1rem; font-weight: 800; color: var(--ink); }
+    .tb-col-v { margin: 0; font-size: 0.78rem; color: var(--ink-soft); }
+    .tb-n { min-width: 28px; height: 28px; padding: 0 8px; box-sizing: border-box; border-radius: 14px; display: grid; place-items: center; background: var(--paper-raised); font-weight: 800; }
+    .tb-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--paper-raised); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .tb-card-on { border-color: var(--teal); box-shadow: 0 0 0 2px var(--teal); }
+    .tb-card-open { display: flex; flex-direction: column; gap: 2px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+    .tb-card-n { font-family: "Fraunces", Georgia, serif; font-weight: 700; color: var(--teal-deep); }
+    .tb-card-t { font-weight: 800; }
+    .tb-card-s { font-size: 0.85rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+    .tb-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .tb-edad { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 800; }
+    .tb-bien { background: rgba(27, 100, 87, 0.15); color: #0f5a4c; }
+    .tb-alerta { background: rgba(242, 177, 52, 0.3); color: #6d4b02; }
+    .tb-atrasado { background: rgba(208, 87, 58, 0.18); color: var(--terracotta-deep); }
+    .tb-cerrado { background: rgba(20, 36, 38, 0.08); color: var(--ink-soft); }
+    .tb-quien { font-size: 0.75rem; font-weight: 700; color: var(--ink-soft); }
+    .tb-meson, .tb-bloqueo { margin: 0; font-size: 0.78rem; font-weight: 600; }
+    .tb-meson { color: var(--ink-soft); }
+    .tb-bloqueo { color: var(--terracotta-deep); }
+    .tb-mover { width: 100%; min-height: 40px; }
+    .tb-vacia { margin: 0; padding: 18px 8px; text-align: center; color: var(--ink-soft); border: 2px dashed var(--line-strong); border-radius: 12px; }
+    .tb-ocultos { margin: 0; font-size: 0.78rem; color: var(--ink-soft); text-align: center; }
+    .tb-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 45; width: 460px; max-width: 100%; box-sizing: border-box;
+      overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 14px;
+      background: var(--paper-raised); box-shadow: -20px 0 40px -20px rgba(0, 0, 0, 0.45);
+    }
+    .tb-d-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .tb-d-top .eyebrow { margin: 0; }
+    .tb-d-t { margin: 2px 0 0; font-size: 1.5rem; }
+    .tb-d-desc { margin: 0; line-height: 1.5; }
+    .tb-d-h { margin: 0 0 8px; font-family: "Public Sans", sans-serif; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+    .tb-rec { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 3px solid var(--paper-sunk); display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; }
+    .tb-rec li { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--ink-soft); }
+    .tb-rec li.tb-rec-ok { color: var(--ink); }
+    .tb-rec em { flex-basis: 100%; font-style: normal; padding: 6px 10px; border-radius: 8px; background: var(--paper-sunk); color: var(--ink); }
+    .tb-lbl { display: block; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+    .tb-txt { width: 100%; box-sizing: border-box; min-height: 70px; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line-strong); font: inherit; background: var(--paper); resize: vertical; }
+    @media (max-width: 600px) {
+      .tb-carga { margin-left: 0; }
+      .tb-cols { grid-auto-columns: 82%; }
+    }
+  `],
+})
+export class TableroComponent implements OnInit {
+  readonly DIAS_CERRADOS = DIAS_CERRADOS;
+  tramites: Tramite[] = [];
+  tipos: TipoTramite[] = [];
+  cupos = new Map<number, CupoInfo>();
+  cargando = true;
+  errorCarga = '';
+  error = '';
+  aviso = '';
+  username = '';
+  soloMios = false;
+  verRechazados = false;
+  /** ids con un cambio de estado en curso (deshabilita sus botones). */
+  actualizando = new Set<number>();
+
+  abierto: Tramite | null = null;
+  pasos: Paso[] | null = null;
+  cargandoPasos = false;
+  errorPasos = '';
+  nota = '';
+  confirmandoRechazo = false;
+
+  @ViewChild('cerrarBtn') cerrarBtn?: ElementRef<HTMLButtonElement>;
+
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  constructor(
+    private service: RequestsService,
+    private catalog: CatalogService,
+    private session: SessionService,
+  ) {}
+
+  ngOnInit(): void {
+    this.session.estado$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => {
+      if (!s.cargando) this.username = s.username;
+    });
+    this.catalog.listar().subscribe({ next: (t) => (this.tipos = t) });
+    this.cargarCupos();
+    this.cargar(true);
+    // ponytail: el mismo polling de 10 s de /requests (HTTP API Gateway no soporta WebSocket).
+    interval(10_000)
+      .pipe(
+        switchMap(() => this.service.listar().pipe(catchError(() => EMPTY))),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((data) => this.recibir(data));
+  }
+
+  cargar(conSpinner: boolean): void {
+    if (conSpinner) this.cargando = true;
+    this.errorCarga = '';
+    this.service.listar()
+      .pipe(finalize(() => (this.cargando = false)))
+      .subscribe({
+        next: (data) => this.recibir(data),
+        error: (e) => (this.errorCarga = e.error?.detail ?? `No se pudieron cargar los trámites (${e.status}).`),
+      });
+  }
+
+  /** Lista nueva del backend: el panel abierto se actualiza, o se cierra si el tramite ya no esta. */
+  private recibir(data: Tramite[]): void {
+    this.tramites = data;
+    if (!this.abierto) return;
+    const actual = data.find((t) => t.id === this.abierto!.id);
+    if (!actual) {
+      this.cerrar();
+      return;
+    }
+    const cambio = actual.estado !== this.abierto.estado;
+    this.abierto = actual;
+    if (cambio) {
+      // Otro funcionario lo movio mientras estaba abierto: se recarga y se descarta la confirmacion a medias.
+      this.confirmandoRechazo = false;
+      this.cargarPasos(actual);
+    }
+  }
+
+  cargarCupos(): void {
+    this.service.cupos().subscribe({
+      next: (lista) => (this.cupos = new Map(lista.map((c) => [c.tipoId, c]))),
+      // El cupo es informativo: si falla, el backend igual valida al admitir.
+      error: () => this.cupos.clear(),
+    });
+  }
+
+  get columnas(): Columna[] {
+    const base = this.soloMios
+      ? this.tramites.filter((t) => t.funcionarioAsignado === this.username || (t.estado === 'INGRESADO' && !t.funcionarioAsignado))
+      : this.tramites;
+    const estados: EstadoTramite[] = this.verRechazados ? [...FLUJO, 'RECHAZADO'] : FLUJO;
+    const limite = Date.now() - DIAS_CERRADOS * 864e5;
+    return estados.map((estado) => {
+      const todas = base.filter((t) => t.estado === estado);
+      const cerrada = estado === 'RESUELTO' || estado === 'RECHAZADO';
+      const tarjetas = cerrada
+        ? todas.filter((t) => Date.parse(t.fechaResolucion ?? t.fechaIngreso) >= limite)
+            .sort((a, b) => (b.fechaResolucion ?? '').localeCompare(a.fechaResolucion ?? ''))
+        : [...todas].sort((a, b) => a.fechaIngreso.localeCompare(b.fechaIngreso)); // el mas antiguo primero
+      return { estado, titulo: ETIQUETA[estado], vecinoVe: ETIQUETA_VECINO[estado], tarjetas, ocultos: todas.length - tarjetas.length };
+    });
+  }
+
+  /** Funcionarios con tramites abiertos (segun el ultimo que los movio; no hay "responsable" todavia). */
+  get carga(): { nombre: string; n: number }[] {
+    const conteo = new Map<string, number>();
+    for (const t of this.tramites) {
+      if (!t.funcionarioAsignado || !SIGUIENTE[t.estado]) continue;
+      const k = this.usuario(t.funcionarioAsignado);
+      conteo.set(k, (conteo.get(k) ?? 0) + 1);
+    }
+    return [...conteo].map(([nombre, n]) => ({ nombre, n })).sort((a, b) => b.n - a.n).slice(0, 5);
+  }
+
+  contarCerrados(estado: EstadoTramite): number {
+    return this.tramites.filter((t) => t.estado === estado).length;
+  }
+
+  porEstado(_i: number, c: Columna): string {
+    return c.estado;
+  }
+
+  porId(_i: number, t: Tramite): number {
+    return t.id;
+  }
+
+  etiqueta(e: EstadoTramite): string {
+    return ETIQUETA[e];
+  }
+
+  verbo(t: Tramite): string | undefined {
+    return VERBO[t.estado];
+  }
+
+  avisoVecino(t: Tramite): string {
+    const sig = SIGUIENTE[t.estado];
+    return sig ? AVISO_VECINO[sig] ?? '' : '';
+  }
+
+  abiertoParaCambios(t: Tramite): boolean {
+    return !!SIGUIENTE[t.estado];
+  }
+
+  nombreTipo(tipoId: number): string {
+    return this.cupos.get(tipoId)?.nombre ?? this.tipos.find((t) => t.id === tipoId)?.nombre ?? `Tipo #${tipoId}`;
+  }
+
+  usuario(email: string | null | undefined): string {
+    return email ? email.split('@')[0] : '';
+  }
+
+  /**
+   * Cuanto lleva abierto. ponytail: umbrales fijos (admitir en 24 h, cerrar en 7 dias);
+   * pasan a plazos por tipo en el catalogo cuando existan (caso de uso 4.10).
+   */
+  antiguedad(t: Tramite): { texto: string; nivel: string } {
+    if (!SIGUIENTE[t.estado]) return { texto: 'Cerrado', nivel: 'cerrado' };
+    const horas = Math.max(0, (Date.now() - Date.parse(t.fechaIngreso)) / 36e5);
+    const texto = horas < 1 ? 'Hace menos de 1 h' : horas < 48 ? `Hace ${Math.floor(horas)} h` : `Hace ${Math.floor(horas / 24)} días`;
+    const [alerta, atrasado] = t.estado === 'INGRESADO' ? [8, 24] : [72, 168];
+    return { texto, nivel: horas >= atrasado ? 'atrasado' : horas >= alerta ? 'alerta' : 'bien' };
+  }
+
+  /** Solo admitir consume cupo. */
+  sinCupo(t: Tramite): boolean {
+    if (t.estado !== 'INGRESADO') return false;
+    const c = this.cupos.get(t.tipoId);
+    return !!c && c.disponible <= 0;
+  }
+
+  reinicio(t: Tramite): string {
+    const c = this.cupos.get(t.tipoId);
+    if (!c) return '';
+    return 'a las ' + new Date(c.reinicia).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  mover(t: Tramite, nota?: string): void {
+    const sig = SIGUIENTE[t.estado];
+    if (!sig || this.actualizando.has(t.id) || this.sinCupo(t)) return;
+    this.cambiar(t, sig, nota);
+  }
+
+  rechazar(t: Tramite): void {
+    if (this.nota.trim().length < 5) return;
+    this.cambiar(t, 'RECHAZADO', this.nota);
+  }
+
+  private cambiar(t: Tramite, nuevo: EstadoTramite, nota?: string): void {
+    this.actualizando.add(t.id);
+    this.error = '';
+    this.aviso = '';
+    this.service.cambiarEstado(t.id, nuevo, nota)
+      .pipe(finalize(() => this.actualizando.delete(t.id)))
+      .subscribe({
+        next: (real) => {
+          this.tramites = this.tramites.map((x) => (x.id === real.id ? real : x));
+          this.aviso = `N° ${t.id} pasó a ${ETIQUETA[nuevo]}. ${AVISO_VECINO[nuevo] ?? ''}`;
+          if (nuevo === 'ADMITIDO') this.cargarCupos();
+          if (this.abierto?.id === real.id) {
+            this.abierto = real;
+            this.nota = '';
+            this.confirmandoRechazo = false;
+            this.cargarPasos(real);
+          }
+        },
+        error: (e) => {
+          // Lo pudo mover otro funcionario (409) o el cupo se acabo entre medio: la verdad la trae el servidor.
+          this.error = e.error?.detail ?? `No se pudo cambiar el estado (${e.status}).`;
+          this.cargar(false);
+          this.cargarCupos();
+        },
+      });
+  }
+
+  abrir(t: Tramite): void {
+    this.abierto = t;
+    this.nota = '';
+    this.confirmandoRechazo = false;
+    this.cargarPasos(t);
+    setTimeout(() => this.cerrarBtn?.nativeElement.focus());
+  }
+
+  cerrar(): void {
+    const id = this.abierto?.id;
+    this.abierto = null;
+    this.pasos = null;
+    this.confirmandoRechazo = false;
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>(`[data-id="${id}"]`)?.focus());
+  }
+
+  private cargarPasos(t: Tramite): void {
+    this.cargandoPasos = true;
+    this.errorPasos = '';
+    this.service.seguimiento(t.id)
+      .pipe(finalize(() => (this.cargandoPasos = false)))
+      .subscribe({
+        next: (p) => {
+          if (this.abierto?.id === t.id) this.pasos = p;
+        },
+        error: (e) => (this.errorPasos = e.error?.detail ?? `No se pudo cargar el recorrido (${e.status}).`),
+      });
+  }
+
+  /** En un rechazo no se listan los pasos que nunca alcanzo (igual que en /requests). */
+  pasosVisibles(t: Tramite): Paso[] {
+    const lista = this.pasos ?? [];
+    return t.estado === 'RECHAZADO' ? lista.filter((p) => p.fechaCumplido || p.estado === 'RECHAZADO') : lista;
+  }
+}
