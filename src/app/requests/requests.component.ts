@@ -73,7 +73,7 @@ interface Edicion {
       <label for="tipo">Tipo de trámite</label>
       <select id="tipo" [(ngModel)]="nuevo.tipoId" name="tipoId" required>
         <option [ngValue]="null" disabled>Selecciona un tipo</option>
-        <option *ngFor="let t of tipos" [ngValue]="t.id">{{ t.nombre }}</option>
+        <option *ngFor="let t of tiposPedibles" [ngValue]="t.id">{{ t.nombre }}</option>
       </select>
       <p class="hint" *ngIf="cupoDe(nuevo.tipoId) as c">
         <ng-container *ngIf="c.disponible > 0; else agotado">
@@ -328,6 +328,14 @@ interface Edicion {
 export class RequestsComponent implements OnInit {
   tramites: Tramite[] = [];
   tipos: TipoTramite[] = [];
+
+  /**
+   * Solo los tipos activos se pueden pedir: el Admin los desactiva en /reglas (o en el catalogo).
+   * `tipos` completo se sigue usando para el nombre de los tramites ya creados de un tipo desactivado.
+   */
+  get tiposPedibles(): TipoTramite[] {
+    return this.tipos.filter((t) => t.activo !== false);
+  }
   /** Cupo del dia por tipoId; lo usa el formulario y cada tarjeta. */
   cupos = new Map<number, CupoInfo>();
   cargando = true;
