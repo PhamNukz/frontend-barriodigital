@@ -10,6 +10,7 @@ import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from './requests.service';
 import { DETALLE, ETIQUETA, ETIQUETA_VECINO, SIGUIENTE } from './estados';
 import { ConversacionComponent } from '../vecino/conversacion.component';
+import { MapaDireccionComponent } from './mapa-direccion.component';
 
 // audit.component importa ETIQUETA desde aqui.
 export { ETIQUETA };
@@ -27,7 +28,7 @@ interface Edicion {
 @Component({
   selector: 'app-requests',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ConversacionComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ConversacionComponent, MapaDireccionComponent],
   template: `
     <header class="page-head">
       <div>
@@ -97,8 +98,20 @@ interface Edicion {
         required
       ></textarea>
 
+      <!-- En los cerros la numeracion no alcanza: el pin le dice a la cuadrilla donde es. -->
+      <app-mapa-direccion
+        [lat]="nuevo.lat"
+        [lng]="nuevo.lng"
+        (puntoChange)="nuevo.lat = $event.lat; nuevo.lng = $event.lng"
+        (direccion)="nuevo.direccion = $event"
+      ></app-mapa-direccion>
+
       <label for="direccion">Dirección</label>
-      <input id="direccion" [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Calle y número" />
+      <input id="direccion" [(ngModel)]="nuevo.direccion" name="direccion" placeholder="Calle y número" maxlength="300" />
+
+      <label for="referencia">Referencias <span class="opcional">(opcional)</span></label>
+      <input id="referencia" [(ngModel)]="nuevo.referencia" name="referencia" maxlength="300"
+             placeholder="Cerro, pasaje, escalera, color de la casa" />
 
       <button type="submit" class="btn btn-primary" [disabled]="enviando || !formValido">
         {{ enviando ? 'Ingresando…' : 'Ingresar trámite' }}
@@ -247,10 +260,19 @@ interface Edicion {
 
             <dl class="ficha">
               <div *ngIf="t.direccion"><dt>Dirección</dt><dd>{{ t.direccion }}</dd></div>
+              <div *ngIf="t.referencia"><dt>Referencias</dt><dd>{{ t.referencia }}</dd></div>
               <div *ngIf="esFuncionarioOAdmin"><dt>Vecino</dt><dd>{{ t.vecinoUsername }}</dd></div>
               <div *ngIf="t.funcionarioAsignado"><dt>Último funcionario</dt><dd>{{ t.funcionarioAsignado }}</dd></div>
               <div *ngIf="t.creadoPor"><dt>Ingresado por</dt><dd>{{ t.creadoPor }} (a nombre del vecino)</dd></div>
             </dl>
+
+            <!-- Para la cuadrilla: el punto exacto y el link para navegar hasta el. -->
+            <app-mapa-direccion
+              *ngIf="esFuncionarioOAdmin && t.lat != null && t.lng != null"
+              [lat]="t.lat"
+              [lng]="t.lng"
+              [soloLectura]="true"
+            ></app-mapa-direccion>
 
             <!-- Acciones del funcionario: avanzar o rechazar, con una nota opcional para el vecino. -->
             <div class="acciones" *ngIf="esFuncionarioOAdmin && puedeRechazar(t.estado)">
@@ -325,12 +347,7 @@ export class RequestsComponent implements OnInit {
   readonly filasSkeleton = [1, 2, 3, 4];
   /** ids de tramites con un cambio de estado en curso (deshabilita sus botones). */
   actualizando = new Set<number>();
-  nuevo: { tipoId: number | null; descripcion: string; direccion: string; vecinoUsername: string } = {
-    tipoId: null,
-    descripcion: '',
-    direccion: '',
-    vecinoUsername: '',
-  };
+  nuevo = formularioVacio();
 
   /** Tarjetas desplegadas; sobreviven al refresco periodico de la lista. */
   abiertos = new Set<number>();
@@ -562,8 +579,10 @@ export class RequestsComponent implements OnInit {
       descripcion: this.nuevo.descripcion,
       direccion: this.nuevo.direccion,
       ...(vecino ? { vecinoUsername: vecino } : {}),
+      ...(this.nuevo.lat != null && this.nuevo.lng != null ? { lat: this.nuevo.lat, lng: this.nuevo.lng } : {}),
+      ...(this.nuevo.referencia.trim() ? { referencia: this.nuevo.referencia.trim() } : {}),
     };
-    this.nuevo = { tipoId: null, descripcion: '', direccion: '', vecinoUsername: '' };
+    this.nuevo = formularioVacio();
     this.aNombreDeVecino = false;
     this.formAbierto = false;
 
@@ -581,6 +600,9 @@ export class RequestsComponent implements OnInit {
       fechaAdmision: null,
       fechaResolucion: null,
       creadoPor: vecino ? this.username : null,
+      lat: cuerpo.lat ?? null,
+      lng: cuerpo.lng ?? null,
+      referencia: cuerpo.referencia ?? null,
     };
     this.tramites = [optimista, ...this.tramites];
 
@@ -635,6 +657,18 @@ export class RequestsComponent implements OnInit {
         },
       });
   }
+}
+
+function formularioVacio() {
+  return {
+    tipoId: null as number | null,
+    descripcion: '',
+    direccion: '',
+    vecinoUsername: '',
+    lat: null as number | null,
+    lng: null as number | null,
+    referencia: '',
+  };
 }
 
 /** Instant ISO -> valor de <input type="datetime-local"> en la hora local del navegador. */
