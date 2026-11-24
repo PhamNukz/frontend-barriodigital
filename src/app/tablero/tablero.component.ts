@@ -272,6 +272,10 @@ interface Fila {
 
           <!-- Visita: el estado y lo que se puede hacer con ella -->
           <ng-container *ngIf="puedeAgendar(t)">
+            <!-- Oculto al vecino: no ve la propuesta ni recibe correos (backend §6.6); si no, quedaria "esperando" para siempre. -->
+            <p class="tb-bloqueo" *ngIf="t.visibleVecino === false">
+              Oculto al vecino: no ve la propuesta ni recibe correos. Coordina la visita por teléfono y usa «Confirmé por teléfono».
+            </p>
             <ng-container *ngIf="t.visita as v; else sinVisita">
               <p class="tb-visita tb-visita-g" [ngClass]="'tb-v-' + v.estado">
                 {{ textoVisita(v) }} · {{ v.cuadrilla }} · <b>{{ ESTADO_VISITA[v.estado] }}</b>
