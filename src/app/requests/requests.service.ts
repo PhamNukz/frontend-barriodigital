@@ -18,6 +18,11 @@ export interface Tramite {
   fechaResolucion: string | null;
   /** Funcionario que lo ingreso a nombre del vecino; null si lo ingreso el vecino. */
   creadoPor?: string | null;
+  /** Punto marcado en el mapa; null en los tramites sin mapa. */
+  lat?: number | null;
+  lng?: number | null;
+  /** Cerro, pasaje, escalera, color de la casa. */
+  referencia?: string | null;
 }
 
 export interface CrearTramite {
@@ -26,6 +31,10 @@ export interface CrearTramite {
   direccion?: string;
   /** Solo Funcionario: correo del vecino a cuyo nombre se ingresa. */
   vecinoUsername?: string;
+  /** Opcionales, lat y lng juntos: el backend valida que caigan en la comuna de Valparaiso. */
+  lat?: number;
+  lng?: number;
+  referencia?: string;
 }
 
 /** Un paso del flujo del tramite: cuando se cumplio o cuando se estima que se cumplira. */
