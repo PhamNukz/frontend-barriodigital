@@ -23,6 +23,39 @@ export interface Tramite {
   lng?: number | null;
   /** Cerro, pasaje, escalera, color de la casa. */
   referencia?: string | null;
+  /** Asignacion explicita (≠ funcionarioAsignado, que es el ultimo que cambio el estado). */
+  responsable?: string | null;
+  /** Momento en que la cuadrilla salio; solo en EN_TERRENO. */
+  enCaminoDesde?: string | null;
+  /**
+   * undefined = el backend todavia no tiene visitas (la UI se esconde);
+   * null = las tiene, pero este tramite aun no tiene visita propuesta.
+   */
+  visita?: Visita | null;
+}
+
+export type Franja = 'MANANA' | 'TARDE';
+export type EstadoVisita = 'PROPUESTA' | 'CONFIRMADA' | 'CAMBIO_PEDIDO' | 'LLAMAR';
+export type RespuestaVisita = 'CONFIRMAR' | 'CAMBIAR' | 'LLAMAR';
+
+export interface Visita {
+  /** LocalDate ISO ("2026-11-26"). */
+  fecha: string;
+  franja: Franja;
+  cuadrilla: string;
+  nota: string | null;
+  estado: EstadoVisita;
+  /** Lo que pidio el vecino con CAMBIAR (texto corto). */
+  horarioPedido: string | null;
+  actualizadoEn: string;
+}
+
+export const HORARIO_FRANJA: Record<Franja, string> = { MANANA: '9:00 a 12:00', TARDE: '14:00 a 17:00' };
+
+/** "jueves 26 de noviembre, 9:00 a 12:00". La fecha es LocalDate: se arma a mediodia para no correrse de dia por zona horaria. */
+export function textoVisita(v: Visita): string {
+  const dia = new Date(v.fecha + 'T12:00:00').toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `${dia}, ${HORARIO_FRANJA[v.franja]}`;
 }
 
 export interface CrearTramite {
@@ -91,5 +124,27 @@ export class RequestsService {
   /** Cupo de todos los tipos en una sola llamada (la tabla lo necesita por fila). */
   cupos(): Observable<CupoInfo[]> {
     return this.http.get<CupoInfo[]>(`${this.base}/cupos`);
+  }
+
+  // Los cuatro devuelven el tramite completo: la pantalla lo reemplaza sin recargar.
+
+  /** Solo Funcionario/Admin; 409 si el tramite esta cerrado. */
+  asignarResponsable(id: number, responsable: string): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/responsable`, { responsable: responsable.trim() });
+  }
+
+  /** Crea o reprograma la visita (queda PROPUESTA). fecha: LocalDate "2026-11-26". */
+  proponerVisita(id: number, fecha: string, franja: Franja, cuadrilla: string, nota: string): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/visita`, { fecha, franja, cuadrilla: cuadrilla.trim(), nota: nota.trim() || null });
+  }
+
+  /** Solo el vecino dueno; CAMBIAR exige horarioPedido. 409 si ya respondio. */
+  responderVisita(id: number, respuesta: RespuestaVisita, horarioPedido?: string): Observable<Tramite> {
+    return this.http.post<Tramite>(`${this.base}/${id}/visita/respuesta`, { respuesta, horarioPedido: horarioPedido?.trim() || null });
+  }
+
+  /** Idempotente: repetirlo no reenvia el correo. */
+  avisarEnCamino(id: number): Observable<Tramite> {
+    return this.http.put<Tramite>(`${this.base}/${id}/en-camino`, {});
   }
 }

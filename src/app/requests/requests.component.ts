@@ -166,6 +166,7 @@ interface Edicion {
         *ngIf="!esFuncionarioOAdmin && filtrados.length"
         [tramites]="filtrados"
         [nombreTipo]="nombreTipoFn"
+        (actualizado)="reemplazar($event)"
       ></app-conversacion>
 
       <div class="lista-tramites" *ngIf="esFuncionarioOAdmin && filtrados.length">
@@ -431,6 +432,11 @@ export class RequestsComponent implements OnInit {
 
   /** Para pasar como @Input a la conversacion del vecino (sin perder el this). */
   readonly nombreTipoFn = (tipoId: number): string => this.nombreTipo(tipoId);
+
+  /** El vecino respondio la visita: el backend devolvio el tramite completo y se usa tal cual. */
+  reemplazar(real: Tramite): void {
+    this.tramites = this.tramites.map((t) => (t.id === real.id ? real : t));
+  }
 
   /** Funcionario y Admin ven el nombre del estado del caso; el vecino, la version simple. */
   etiqueta(estado: EstadoTramite): string {

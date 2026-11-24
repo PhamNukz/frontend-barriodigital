@@ -1,8 +1,12 @@
-import { Component, ElementRef, Input, OnChanges, ViewChild, inject } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { finalize } from 'rxjs/operators';
-import { EstadoTramite, Paso, RequestsService, Tramite } from '../requests/requests.service';
+import { EstadoTramite, Paso, RequestsService, RespuestaVisita, Tramite, textoVisita } from '../requests/requests.service';
 import { ETIQUETA_VECINO, FLUJO } from '../requests/estados';
+
+/** Atajos para pedir otro horario: el adulto mayor toca uno en vez de escribir. */
+const SUGERENCIAS = ['Otro día en la mañana', 'Otro día en la tarde', 'La próxima semana'];
 
 /** Lo que "dice" la municipalidad al cumplirse cada paso. */
 const MENSAJE: Record<EstadoTramite, string> = {
@@ -30,12 +34,13 @@ interface Siguiente {
 /**
  * Vecino B: cada tramite es una conversacion con la municipalidad, armada con el
  * seguimiento que ya entrega el backend (pasos cumplidos + nota del funcionario).
- * ponytail: solo lectura; las respuestas rapidas a la visita llegan con el backend de Visita.
+ * Si el backend trae `visita`, se suma la propuesta con respuestas fijas (sin texto libre
+ * en el chat: eso pediria moderacion y un servicio de mensajeria).
  */
 @Component({
   selector: 'app-conversacion',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <!-- LISTA: una conversacion por tramite -->
     <ul class="cv-lista" *ngIf="!abierto" aria-label="Tus trámites">
@@ -49,7 +54,10 @@ interface Siguiente {
             <span class="badge" [ngClass]="t.estado">{{ t.id < 0 ? 'Enviando…' : 'N° ' + t.id + ' · ' + paso(t) }}</span>
             <span class="cv-fila-m">{{ t.id < 0 ? 'Estamos registrando tu solicitud.' : mensajeCorto(t) }}</span>
           </span>
-          <span class="cv-fila-h">{{ ultimoMovimiento(t) | date: 'd MMM, HH:mm' }}</span>
+          <span class="cv-fila-h">
+            {{ ultimoMovimiento(t) | date: 'd MMM, HH:mm' }}
+            <span class="cv-nuevo" *ngIf="puedeResponder(t)">Responder</span>
+          </span>
         </button>
       </li>
     </ul>
@@ -88,13 +96,60 @@ interface Siguiente {
             <span class="cv-hora">{{ m.hora }}</span>
           </div>
         </li>
-        <li *ngIf="siguiente as s">
+        <!-- Visita: la propuesta del funcionario y lo que respondio el vecino -->
+        <li *ngIf="visitaVigente(t) && t.visita as v">
+          <div class="cv-bub cv-visita">
+            <p class="cv-de">Municipalidad</p>
+            <p class="cv-txt">{{ v.estado === 'PROPUESTA' ? 'Te proponemos esta visita. ¿Te acomoda?' : 'Tu visita' }}</p>
+            <dl class="cv-vdatos">
+              <div><dt>Día y hora</dt><dd>{{ textoVisita(v) }}</dd></div>
+              <div *ngIf="t.direccion"><dt>Dirección</dt><dd>{{ t.direccion }}</dd></div>
+              <div><dt>Quién va</dt><dd>{{ v.cuadrilla }}</dd></div>
+            </dl>
+            <blockquote class="cv-nota" *ngIf="v.nota">{{ v.nota }}</blockquote>
+            <p class="cv-vestado" [ngClass]="'cv-v-' + v.estado">{{ estadoVisita(t) }}</p>
+          </div>
+        </li>
+        <li *ngIf="t.estado === 'EN_TERRENO' && t.enCaminoDesde">
+          <div class="cv-bub">
+            <p class="cv-de">Municipalidad</p>
+            <span class="badge EN_TERRENO">{{ etiqueta('EN_TERRENO') }}</span>
+            <p class="cv-txt">La cuadrilla salió a las {{ t.enCaminoDesde | date: 'HH:mm' }} y va en camino a tu dirección.</p>
+          </div>
+        </li>
+        <li *ngIf="siguiente && !visitaVigente(t) && siguiente as s">
           <div class="cv-sig">
             <p class="cv-sig-t">{{ s.titulo }}</p>
             <p>{{ s.texto }}</p>
           </div>
         </li>
       </ol>
+
+      <!-- Respuestas fijas a la visita propuesta -->
+      <div class="cv-resp" *ngIf="!cargando && puedeResponder(t)">
+        <ng-container *ngIf="!pidiendoCambio">
+          <button type="button" class="btn btn-primary cv-qr" [disabled]="enviando" (click)="responder(t, 'CONFIRMAR')">
+            {{ enviando ? 'Enviando…' : 'Sí, me acomoda' }}
+          </button>
+          <button type="button" class="btn btn-outline cv-qr" [disabled]="enviando" (click)="pidiendoCambio = true">Necesito otro día u hora</button>
+          <button type="button" class="btn btn-outline cv-qr" [disabled]="enviando" (click)="responder(t, 'LLAMAR')">Prefiero que me llamen</button>
+        </ng-container>
+        <ng-container *ngIf="pidiendoCambio">
+          <p class="cv-resp-t">¿Qué día y hora te acomoda?</p>
+          <div class="cv-sug" role="group" aria-label="Sugerencias">
+            <button type="button" class="chip" *ngFor="let s of SUGERENCIAS" [class.on]="horarioPedido === s" (click)="horarioPedido = s">{{ s }}</button>
+          </div>
+          <label class="cv-lbl" for="cv-horario">O escríbelo con tus palabras</label>
+          <input id="cv-horario" class="cv-inp" [(ngModel)]="horarioPedido" name="horarioPedido" maxlength="100"
+                 placeholder="Ej.: viernes en la tarde" autocomplete="off" />
+          <button type="button" class="btn btn-primary cv-qr" [disabled]="enviando || !horarioPedido.trim()" (click)="responder(t, 'CAMBIAR')">
+            {{ enviando ? 'Enviando…' : 'Pedir este horario' }}
+          </button>
+          <button type="button" class="btn btn-outline cv-qr" [disabled]="enviando" (click)="pidiendoCambio = false">Volver</button>
+        </ng-container>
+      </div>
+      <p class="aviso-error" *ngIf="errorResp" role="alert">{{ errorResp }}</p>
+      <p class="cv-ok" *ngIf="okResp" role="status">{{ okResp }}</p>
 
       <p class="cv-pie">{{ pie(t) }}</p>
     </section>
@@ -141,6 +196,24 @@ interface Siguiente {
     .cv-sig p { margin: 0; font-size: 1.05rem; }
     .cv-sig-t { font-weight: 800; color: var(--teal-deep); margin-bottom: 4px !important; }
     .cv-pie { margin: 0; text-align: center; color: var(--ink-soft); font-size: 1rem; }
+    .cv-nuevo { display: block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: var(--terracotta-deep); color: #fff; font-size: 0.8rem; font-weight: 800; text-align: center; }
+    .cv-visita { border: 2px solid var(--teal); }
+    .cv-vdatos { margin: 0; display: grid; gap: 8px; }
+    .cv-vdatos dt { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); }
+    .cv-vdatos dd { margin: 2px 0 0; font-size: 1.12rem; font-weight: 700; }
+    .cv-vdatos dd::first-letter { text-transform: uppercase; }
+    .cv-vestado { margin: 0; padding: 10px 12px; border-radius: 10px; font-weight: 700; font-size: 1.02rem; }
+    .cv-v-PROPUESTA { background: rgba(242, 177, 52, 0.25); color: #6d4b02; }
+    .cv-v-CONFIRMADA { background: rgba(27, 100, 87, 0.15); color: #0f5a4c; }
+    .cv-v-CAMBIO_PEDIDO, .cv-v-LLAMAR { background: rgba(38, 101, 168, 0.14); color: #1d5288; }
+    .cv-resp { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: var(--paper-raised); border: 1px solid var(--line); }
+    .cv-qr { width: 100%; min-height: 56px; font-size: 1.08rem; }
+    .cv-resp-t { margin: 0; font-weight: 800; font-size: 1.1rem; }
+    .cv-sug { display: flex; flex-wrap: wrap; gap: 8px; }
+    .cv-sug .chip { min-height: 44px; font-size: 0.98rem; }
+    .cv-lbl { font-weight: 700; font-size: 0.95rem; }
+    .cv-inp { width: 100%; box-sizing: border-box; min-height: 52px; padding: 10px 14px; border-radius: 12px; border: 2px solid var(--line-strong); font: inherit; font-size: 1.05rem; background: var(--paper); }
+    .cv-ok { margin: 0; padding: 12px 14px; border-radius: 12px; background: rgba(27, 100, 87, 0.15); color: #0f5a4c; font-weight: 700; }
     @media (max-width: 600px) {
       .cv-fila { grid-template-columns: 44px minmax(0, 1fr); }
       .cv-av { width: 44px; height: 44px; }
@@ -154,14 +227,25 @@ export class ConversacionComponent implements OnChanges {
   /** Los tramites ya filtrados de la pantalla; se refrescan solos cada 10 s. */
   @Input({ required: true }) tramites: Tramite[] = [];
   @Input({ required: true }) nombreTipo!: (tipoId: number) => string;
+  /** El tramite que devolvio el backend al responder: el padre lo reemplaza en su lista. */
+  @Output() actualizado = new EventEmitter<Tramite>();
 
   @ViewChild('titulo') titulo?: ElementRef<HTMLElement>;
+
+  readonly SUGERENCIAS = SUGERENCIAS;
+  readonly textoVisita = textoVisita;
 
   abierto: Tramite | null = null;
   mensajes: Mensaje[] = [];
   siguiente: Siguiente | null = null;
   cargando = false;
   error = '';
+
+  enviando = false;
+  pidiendoCambio = false;
+  horarioPedido = '';
+  errorResp = '';
+  okResp = '';
   /** Estado con el que se cargo el hilo: si el polling trae otro, se recarga. */
   private estadoCargado: EstadoTramite | null = null;
   private pasosCumplidos: Paso[] = [];
@@ -197,7 +281,51 @@ export class ConversacionComponent implements OnChanges {
   }
 
   mensajeCorto(t: Tramite): string {
+    if (this.puedeResponder(t)) return `Te proponemos una visita: ${textoVisita(t.visita!)}. ¿Te acomoda?`;
+    if (t.estado === 'EN_TERRENO' && t.enCaminoDesde) return 'La cuadrilla va en camino.';
     return MENSAJE[t.estado];
+  }
+
+  /** La visita importa mientras el tramite siga abierto; al cerrarse ya es historia. */
+  visitaVigente(t: Tramite): boolean {
+    return !!t.visita && t.estado !== 'RESUELTO' && t.estado !== 'RECHAZADO';
+  }
+
+  puedeResponder(t: Tramite): boolean {
+    return this.visitaVigente(t) && t.visita!.estado === 'PROPUESTA';
+  }
+
+  estadoVisita(t: Tramite): string {
+    const v = t.visita!;
+    switch (v.estado) {
+      case 'PROPUESTA': return 'Falta que nos digas si te acomoda.';
+      case 'CONFIRMADA': return 'Confirmaste la visita. Te esperamos.';
+      case 'CAMBIO_PEDIDO': return `Pediste otro horario: «${v.horarioPedido ?? ''}». Te confirmaremos por aquí y por correo.`;
+      case 'LLAMAR': return 'Pediste que te llamemos para acordar el día. Te llamaremos pronto.';
+    }
+  }
+
+  responder(t: Tramite, respuesta: RespuestaVisita): void {
+    if (this.enviando) return; // doble toque
+    if (respuesta === 'CAMBIAR' && !this.horarioPedido.trim()) return;
+    this.enviando = true;
+    this.errorResp = '';
+    this.okResp = '';
+    this.service.responderVisita(t.id, respuesta, respuesta === 'CAMBIAR' ? this.horarioPedido : undefined)
+      .pipe(finalize(() => (this.enviando = false)))
+      .subscribe({
+        next: (real) => {
+          this.pidiendoCambio = false;
+          this.horarioPedido = '';
+          this.okResp = respuesta === 'CONFIRMAR'
+            ? 'Listo, le avisamos al funcionario que estarás.'
+            : 'Listo, le avisamos al funcionario. Te responderá por aquí y por correo.';
+          if (this.abierto?.id === real.id) this.abierto = real;
+          this.actualizado.emit(real);
+        },
+        // 409: ya respondio (otra pestaña o el correo); el polling trae el estado real.
+        error: (e) => (this.errorResp = e.error?.detail ?? `No se pudo enviar tu respuesta (${e.status}). Intenta de nuevo.`),
+      });
   }
 
   ultimoMovimiento(t: Tramite): string {
@@ -220,7 +348,15 @@ export class ConversacionComponent implements OnChanges {
   abrir(t: Tramite): void {
     if (t.id < 0) return;
     this.abierto = t;
+    this.limpiarRespuesta();
     this.cargar(t, true);
+  }
+
+  private limpiarRespuesta(): void {
+    this.pidiendoCambio = false;
+    this.horarioPedido = '';
+    this.errorResp = '';
+    this.okResp = '';
   }
 
   cerrar(): void {
@@ -230,6 +366,7 @@ export class ConversacionComponent implements OnChanges {
     this.siguiente = null;
     this.pasosCumplidos = [];
     this.estadoCargado = null;
+    this.limpiarRespuesta();
     // Devuelve el foco a la fila de la que se vino (teclado y lector de pantalla).
     setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>(`[data-id="${id}"]`)?.focus());
   }
