@@ -9,6 +9,7 @@ import { SessionService } from '../auth/session.service';
 import { CatalogService, TipoTramite } from '../catalog/catalog.service';
 import { CupoInfo, EstadoTramite, Paso, RequestsService, Tramite } from '../requests/requests.service';
 import { ETIQUETA, ETIQUETA_VECINO, FLUJO, SIGUIENTE } from '../requests/estados';
+import { MapaDireccionComponent } from '../requests/mapa-direccion.component';
 
 /** Texto del boton que mueve la tarjeta a la columna siguiente. */
 const VERBO: Partial<Record<EstadoTramite, string>> = {
@@ -41,7 +42,7 @@ interface Columna {
 @Component({
   selector: 'app-tablero',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, MapaDireccionComponent],
   template: `
     <header class="page-head">
       <div>
@@ -128,10 +129,14 @@ interface Columna {
         <dl class="ficha">
           <div><dt>Vecino</dt><dd>{{ t.vecinoUsername }}</dd></div>
           <div *ngIf="t.direccion"><dt>Dirección</dt><dd>{{ t.direccion }}</dd></div>
+          <div *ngIf="t.referencia"><dt>Referencias</dt><dd>{{ t.referencia }}</dd></div>
           <div><dt>Ingresado</dt><dd>{{ t.fechaIngreso | date: 'd MMM y, HH:mm' }}</dd></div>
           <div *ngIf="t.funcionarioAsignado"><dt>Último funcionario</dt><dd>{{ t.funcionarioAsignado }}</dd></div>
           <div *ngIf="t.creadoPor"><dt>Ingresado por</dt><dd>{{ t.creadoPor }} (a nombre del vecino)</dd></div>
         </dl>
+        <!-- Punto que marco el vecino, con link a Google Maps para la cuadrilla. -->
+        <app-mapa-direccion *ngIf="t.lat != null && t.lng != null"
+          [lat]="t.lat" [lng]="t.lng" [soloLectura]="true"></app-mapa-direccion>
 
         <div>
           <h3 class="tb-d-h">Recorrido</h3>
