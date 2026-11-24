@@ -7,6 +7,7 @@ import { DashboardComponent } from './dashboard/dashboard.component';
 import { ReportsComponent } from './reports/reports.component';
 import { AuditComponent } from './audit/audit.component';
 import { QueuesComponent } from './queues/queues.component';
+import { TableroComponent } from './tablero/tablero.component';
 import { roleGuard } from './auth/role.guard';
 
 export const routes: Routes = [
@@ -16,6 +17,7 @@ export const routes: Routes = [
   { path: 'login', component: HomeComponent },
   { path: 'dashboard', component: DashboardComponent, canActivate: [MsalGuard] },
   { path: 'requests', component: RequestsComponent, canActivate: [MsalGuard] },
+  { path: 'tablero', component: TableroComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
   { path: 'catalog', component: CatalogComponent, canActivate: [MsalGuard, roleGuard(['Admin', 'Funcionario'])] },
   { path: 'reports', component: ReportsComponent, canActivate: [MsalGuard, roleGuard(['Admin'])] },
   // Funcionario: revisa el historial del vecino que esta atendiendo.
