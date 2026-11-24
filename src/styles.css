@@ -630,6 +630,24 @@ form.card select:hover { border-color: var(--teal); }
 .editor-paso label:first-child { margin-top: 0; }
 .editor-paso .row-actions { margin-top: 12px; }
 
+/* PC: la misma linea de metro, acostada. Los pasos van en fila a todo el ancho de
+   la tarjeta y el riel pasa a horizontal, asi la ficha y las acciones quedan a la
+   vista sin scroll. En celular sigue vertical (no caben 5 columnas). */
+@media (min-width: 900px) {
+  .metro { display: flex; align-items: flex-start; gap: 14px; }
+  .parada { flex: 1 1 0; grid-template-columns: 1fr; gap: 10px; padding-bottom: 0; }
+  .parada:last-child { padding-bottom: 0; }
+  /* Un correo en la nota no cabe en 1/5 del ancho: se corta en vez de desbordar. */
+  .parada-cuerpo { overflow-wrap: anywhere; }
+  /* El riel sale del borde derecho de la estacion y cruza el gap hasta la siguiente. */
+  .parada::before {
+    left: 34px; right: -14px; top: 15px; bottom: auto; width: auto; height: 4px;
+    background: repeating-linear-gradient(90deg, var(--line-strong) 0 6px, transparent 6px 11px);
+  }
+  /* El paso que se esta editando se ensancha: el datetime-local no cabe en 1/5. */
+  .parada:has(.editor-paso) { flex-grow: 2.2; }
+}
+
 .ficha { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 18px; margin: 14px 0 0; }
 .ficha div { min-width: 0; }
 .ficha dt { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
